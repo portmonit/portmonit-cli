@@ -1,11 +1,9 @@
 mod broker;
-
-use broker::ibkr::ReportParser;
+mod tax;
 
 use clap::Parser;
 
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
+use broker::ibkr;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,9 +15,9 @@ struct Arguments {
 fn main() {
     let args = Arguments::parse();
 
-    args.input_file.map(|file_path| {
-        let parser : Box<dyn ReportParser::IbkrReportParser> = Box::new(broker::ibkr::ReportParser::IbkrReportParserImpl{});
-        match parser.parse_report(file_path) {
+    args.input_file.map(|file_path: String| {
+        let parser : Box<ibkr::ReportParser::IbkrReportParserGeneral> = Box::new(ibkr::ReportParser::IbkrReportParser{});
+        match parser.parse_from_file(file_path) {
             Ok(report) => {
                 println!("{:#?}", report);
             },

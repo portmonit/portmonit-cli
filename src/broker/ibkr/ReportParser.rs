@@ -1,3 +1,5 @@
+use crate::broker::GeneralReportParser::GeneralReportParser;
+
 use super::Report;
 
 use std::fs;
@@ -9,26 +11,27 @@ pub enum ParseError {
     InvalidReport {reason: String},
 }
 
-pub trait IbkrReportParser {
-    fn parse_report(&self, file_path: String) -> Result<Report::FlexQueryResponse, ParseError>;
-}
+pub type IbkrReportParserGeneral = dyn GeneralReportParser<Report::FlexQueryResponse, ParseError>;
 
-pub struct IbkrReportParserImpl {}
+pub struct IbkrReportParser {}
 
-impl IbkrReportParser for IbkrReportParserImpl {
-    fn parse_report(&self, file_path: String) -> Result<Report::FlexQueryResponse, ParseError> {
+impl GeneralReportParser<Report::FlexQueryResponse, ParseError> for IbkrReportParser {
+    fn parse_from_file(&self, file_path: String) -> Result<Report::FlexQueryResponse, ParseError> {
         let contents = fs::read_to_string(file_path);
         match contents {
             Ok(contents) => {
-                let ret = from_str(contents.as_str());
-                match ret {
-                    Ok(report) => {
-                        return Ok(report);
-                    },
-                    Err(e) => {
-                        return Err(ParseError::InvalidReport {reason: e.to_string()})
-                    }
-                }        
+                return self.parse_from_contents(contents); 
+            },
+            Err(e) => {
+                return Err(ParseError::InvalidReport {reason: e.to_string()})
+            }
+        }
+    }
+    fn parse_from_contents(&self, contents: String) -> Result<Report::FlexQueryResponse, ParseError> {
+        let ret = from_str(contents.as_str());
+        match ret {
+            Ok(report) => {
+                return Ok(report);
             },
             Err(e) => {
                 return Err(ParseError::InvalidReport {reason: e.to_string()})
