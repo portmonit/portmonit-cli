@@ -4,6 +4,8 @@ use super::NationalBank::NationalBank;
 use super::TaxPolicy::*;
 use super::BrokerReportProvider::*;
 use crate::tax::CurrencyConvertor::*;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ops::*;
 use tabled::{Tabled, Table};
 
@@ -110,62 +112,18 @@ impl UaTaxReportGenerator {
             },
         };
 
+        let (earliest_date, latest_date) = self.get_total_range_by_report(&broker_report)?;
+        let currencies = broker_report.trades.iter().map(|trade| { trade.currency }).collect::<HashSet<Currency>>();
 
-        // TODO: all these commented code must be placed in separate functions
-        // let mut earliest_date : Option<NaiveDate> = None; // earliest buy_date of trade or dividend settlement date
-        // let mut latest_date : Option<NaiveDate> = None; // latest sell_date of trade or dividend settlement date
-
-        // for trade in &broker_report.trades {
-        //     let buy_date = trade.buy_date;
-        //     let sell_date = trade.sell_date;
-
-        //     if earliest_date.is_none() {
-        //         earliest_date = Some(buy_date);
-        //     } else {
-        //         if buy_date < earliest_date.unwrap() {
-        //             earliest_date = Some(buy_date);
-        //         }
-        //     }
-
-        //     if latest_date.is_none() {
-        //         latest_date = Some(sell_date);
-        //     } else {
-        //         if sell_date > latest_date.unwrap() {
-        //             latest_date = Some(sell_date);
-        //         }
-        //     }
-        // }
-
-        // for dividend in &broker_report.dividends {
-        //     let date = dividend.date;
-
-        //     if earliest_date.is_none() {
-        //         earliest_date = Some(date);
-        //     } else {
-        //         if date < earliest_date.unwrap() {
-        //             earliest_date = Some(date);
-        //         }
-        //     }
-
-        //     if latest_date.is_none() {
-        //         latest_date = Some(date);
-        //     } else {
-        //         if date > latest_date.unwrap() {
-        //             latest_date = Some(date);
-        //         }
-        //     }
-        // }
-
-        // let preserved_rates = self.preserve_convert_rate(
-        //     broker_report, earliest_date.unwrap(), latest_date.unwrap()).unwrap();
+        let preserved_rated_by_currency = self.preserve_convert_rate_by_currencies(currencies, earliest_date, latest_date)?;
 
         for trade in &broker_report.trades {
             let buy_price = trade.buy_price;
             let sell_price = trade.sell_price;
             let currency = trade.currency;
 
-            let buy_price_uah = self.convert_to_uah(buy_price, currency, trade.buy_date)?.round_dp(2);
-            let sell_price_uah = self.convert_to_uah(sell_price, currency, trade.sell_date)?.round_dp(2);
+            let buy_price_uah = self.convert_to_uah_from_preserved_by_currency(buy_price, currency, trade.buy_date, &preserved_rated_by_currency)?.round_dp(2);
+            let sell_price_uah = self.convert_to_uah_from_preserved_by_currency(sell_price, currency, trade.sell_date, &preserved_rated_by_currency)?.round_dp(2);
 
             let fin_result_uah = sell_price_uah - buy_price_uah;
 
@@ -189,7 +147,7 @@ impl UaTaxReportGenerator {
 
             let amount = dividend.amount;
             let currency = dividend.currency;
-            let amount_uah = self.convert_to_uah(amount, currency, dividend.date)?.round_dp(2);
+            let amount_uah = self.convert_to_uah_from_preserved_by_currency(amount, currency, dividend.date, &preserved_rated_by_currency)?.round_dp(2);
             investment_tax_report.dividend_ops.income_total += amount_uah;
         }
 
@@ -198,7 +156,48 @@ impl UaTaxReportGenerator {
         Ok(investment_tax_report)
     }
 
-    // TODO: this function supposes there is only one currency in the report, but it's not true
+    fn get_total_range_by_report(&self, broker_report: &BrokerReport) -> Result<(NaiveDate, NaiveDate), UaTaxReportGeneratorError> {
+        let mut earliest_date : Option<NaiveDate> = None;
+        let mut latest_date : Option<NaiveDate> = None;
+
+        let min_date_trades = broker_report.trades.iter().map(|trade| { trade.buy_date }).min();
+        let min_date_dividends = broker_report.dividends.iter().map(|dividend| { dividend.date }).min();
+
+        let max_date_trades = broker_report.trades.iter().map(|trade| { trade.sell_date }).max();
+        let max_date_dividends = broker_report.dividends.iter().map(|dividend| { dividend.date }).max();
+
+        if min_date_trades.is_some() && min_date_dividends.is_some() {
+            earliest_date = Some(min_date_trades.unwrap().min(min_date_dividends.unwrap()));
+        } else if min_date_trades.is_some() {
+            earliest_date = Some(min_date_trades.unwrap());
+        } else if min_date_dividends.is_some() {
+            earliest_date = Some(min_date_dividends.unwrap());
+        } else {
+            return Err(UaTaxReportGeneratorError::BrokerError);
+        }
+
+        if max_date_trades.is_some() && max_date_dividends.is_some() {
+            latest_date = Some(max_date_trades.unwrap().max(max_date_dividends.unwrap()));
+        } else if max_date_trades.is_some() {
+            latest_date = Some(max_date_trades.unwrap());
+        } else if max_date_dividends.is_some() {
+            latest_date = Some(max_date_dividends.unwrap());
+        } else {
+            return Err(UaTaxReportGeneratorError::BrokerError);
+        }
+
+        Ok((earliest_date.unwrap(), latest_date.unwrap()))
+    }
+
+    fn preserve_convert_rate_by_currencies(&self, currencies: HashSet<Currency>, start_date: NaiveDate, end_date: NaiveDate) -> Result<HashMap<Currency, Vec<CurrencyRate>>, UaTaxReportGeneratorError> {
+        let mut preserved_rated_by_currency: HashMap<Currency, Vec<CurrencyRate>> = HashMap::new();
+        for currency in currencies {
+            let preserved_rates = self.preserve_convert_rate(currency, start_date, end_date).unwrap();
+            preserved_rated_by_currency.insert(currency, preserved_rates);
+        }
+        Ok(preserved_rated_by_currency)
+    }
+
     fn preserve_convert_rate(&self, currency: Currency, start_date: NaiveDate, end_date: NaiveDate) -> Result<Vec<CurrencyRate>, UaTaxReportGeneratorError> {
         let convert_rates = self.national_bank_rate_provider.convert_range(currency, Currency::UAH, start_date, end_date);
         match convert_rates {
@@ -212,20 +211,26 @@ impl UaTaxReportGenerator {
         }
     }
 
-    fn convert_to_uah_from_preserved(&self, amount: Decimal, currency: Currency, date: NaiveDate, preserved_rates: &Vec<CurrencyRate>) -> Result<Decimal, UaTaxReportGeneratorError> {
-        let mut rate: Option<CurrencyRate> = None;
-        for r in preserved_rates {
-            if r.date == date && r.from == currency {
-                rate = Some(r.clone());
-                break;
+    fn convert_to_uah_from_preserved_by_currency(&self, amount: Decimal, currency: Currency, date: NaiveDate, preserved_rates: &HashMap<Currency, Vec<CurrencyRate>>) -> Result<Decimal, UaTaxReportGeneratorError> {
+        let rates = preserved_rates.get(&currency);
+        match rates {
+            Some(rates) => {
+                let rate = rates.iter().find(|rate| rate.date == date);
+                match rate {
+                    Some(rate) => {
+                        Ok(amount * rate.rate)
+                    },
+                    None => {
+                        println!("Error converting currency: {:?}", UaTaxReportGeneratorError::CurrencyConvertorError);
+                        Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+                    }
+                }
+            },
+            None => {
+                println!("Error converting currency: {:?}", UaTaxReportGeneratorError::CurrencyConvertorError);
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
             }
         }
-
-        if rate.is_none() {
-            return Err(UaTaxReportGeneratorError::CurrencyConvertorError);
-        }
-
-        Ok(amount * rate.unwrap().rate)
     }
 
     fn convert_to_uah(&self, amount: Decimal, currency: Currency, date: NaiveDate) -> Result<Decimal, UaTaxReportGeneratorError> {
