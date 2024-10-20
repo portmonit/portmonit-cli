@@ -193,9 +193,7 @@ impl UaTaxReportGenerator {
             investment_tax_report.dividend_ops.income_total += amount_uah;
         }
 
-        // BUG: 1615,97 must be, but 1615,82 for some reason
         investment_tax_report.dividend_ops.income_total = investment_tax_report.dividend_ops.income_total.round_dp(2);
-    
 
         Ok(investment_tax_report)
     }
