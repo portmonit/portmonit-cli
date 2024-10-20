@@ -8,7 +8,7 @@ pub enum CurrencyConvertorError {
     CurrencyNotSupported {details: String},
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
 pub enum Currency {
     UAH,
     USD,
