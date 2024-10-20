@@ -17,6 +17,17 @@ pub enum Currency {
     // add if you need
 }
 
+impl Currency {
+    pub fn from_str(s: &str) -> Result<Currency, CurrencyConvertorError> {
+        match s {
+            "UAH" => Ok(Currency::UAH),
+            "USD" => Ok(Currency::USD),
+            "EUR" => Ok(Currency::EUR),
+            _ => Err(CurrencyConvertorError::CurrencyNotSupported {details: s.to_string()}),
+        }
+    }
+}
+
 impl fmt::Display for Currency {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)

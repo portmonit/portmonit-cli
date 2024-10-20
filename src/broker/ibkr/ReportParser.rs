@@ -1,5 +1,3 @@
-use crate::broker::GeneralReportParser::GeneralReportParser;
-
 use super::Report;
 
 use std::fs;
@@ -11,13 +9,19 @@ pub enum ParseError {
     InvalidReport {reason: String},
 }
 
-pub type IbkrReportParserGeneral = dyn GeneralReportParser<Report::FlexQueryResponse, ParseError>;
+pub struct IbkrReportParser {
+    file_path: String,
+}
 
-pub struct IbkrReportParser {}
+impl IbkrReportParser {
+    pub fn new(file_path: String) -> IbkrReportParser {
+        IbkrReportParser {
+            file_path,
+        }
+    }
 
-impl GeneralReportParser<Report::FlexQueryResponse, ParseError> for IbkrReportParser {
-    fn parse_from_file(&self, file_path: String) -> Result<Report::FlexQueryResponse, ParseError> {
-        let contents = fs::read_to_string(file_path);
+    pub fn parse(&self) -> Result<Report::FlexQueryResponse, ParseError> {
+        let contents = fs::read_to_string(self.file_path.clone());
         match contents {
             Ok(contents) => {
                 return self.parse_from_contents(contents); 
@@ -27,6 +31,7 @@ impl GeneralReportParser<Report::FlexQueryResponse, ParseError> for IbkrReportPa
             }
         }
     }
+
     fn parse_from_contents(&self, contents: String) -> Result<Report::FlexQueryResponse, ParseError> {
         let ret = from_str(contents.as_str());
         match ret {

@@ -1,0 +1,277 @@
+use rust_decimal::Decimal;
+use chrono::NaiveDate;
+use super::NationalBank::NationalBank;
+use super::TaxPolicy::*;
+use super::BrokerReportProvider::*;
+use crate::tax::CurrencyConvertor::*;
+use std::ops::*;
+use tabled::{Tabled, Table};
+
+#[derive(Debug)]
+pub struct UaTax {
+    pub personal_income_tax: Decimal,
+    pub military_tax: Decimal,
+}
+
+impl UaTax {
+    pub fn new(personal_income_tax: Decimal, military_tax: Decimal) -> UaTax {
+        UaTax {
+            personal_income_tax,
+            military_tax,
+        }
+    }
+
+    pub fn total(&self) -> Decimal {
+        self.personal_income_tax + self.military_tax
+    }
+}
+
+impl Add for UaTax {
+    type Output = UaTax;
+
+    fn add(self, other: UaTax) -> UaTax {
+        UaTax {
+            personal_income_tax: self.personal_income_tax + other.personal_income_tax,
+            military_tax: self.military_tax + other.military_tax,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct UaInvestmentTaxReport {
+    pub dividend_ops: UaTaxDividend,
+    pub investment_ops: UaTaxInvestmentOps,
+}
+
+#[derive(Debug)]
+pub struct UaTaxDividend {
+    pub income_total: Decimal,
+    pub total_tax: UaTax,
+}
+
+impl std::fmt::Display for UaTaxDividend {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Income({}), Tax({})", self.income_total, self.total_tax.total())
+    }
+}
+
+#[derive(Debug)]
+pub struct UaTaxInvestmentOps {
+    pub trades: Vec<UaTradeReport>,
+    pub total_fin_result: Decimal,
+    pub total_tax: UaTax,
+}
+
+#[derive(Debug)]
+pub struct UaTradeReport {
+    pub buy_date: NaiveDate,
+    pub sell_date: NaiveDate,
+    pub name: String,
+    pub buy_price_uah: Decimal,
+    pub sell_price_uah: Decimal,
+    pub fin_result_uah: Decimal,
+}
+
+#[derive(Debug)]
+pub enum UaTaxReportGeneratorError {
+    BrokerError,
+    TaxPolicyError,
+    CurrencyConvertorError,
+}
+
+pub struct UaTaxReportGenerator {
+    tax_policy: TaxPolicy,
+    broker_report_provider: BrokerReportProviderBox,
+    national_bank_rate_provider: NationalBank,
+}
+
+impl UaTaxReportGenerator {
+    pub fn new(tax_policy: TaxPolicy, broker_report_provider: BrokerReportProviderBox) -> UaTaxReportGenerator {    
+        UaTaxReportGenerator {
+            tax_policy,
+            broker_report_provider,
+            national_bank_rate_provider: NationalBank{},
+        }
+    }
+
+    // unformal tax report is a report that can't be used for tax declaration
+    pub fn get_unformal_tax_report(&self) -> Result<UaInvestmentTaxReport, UaTaxReportGeneratorError> {    
+        let broker_report = self.broker_report_provider.get_broker_report();
+
+        let mut investment_tax_report = UaInvestmentTaxReport {
+            dividend_ops: UaTaxDividend {
+                income_total: Decimal::new(0, 0),
+                total_tax: UaTax::new(Decimal::new(0, 0), Decimal::new(0, 0)),
+            },
+            investment_ops: UaTaxInvestmentOps {
+                trades: Vec::new(),
+                total_fin_result: Decimal::new(0, 0),
+                total_tax: UaTax::new(Decimal::new(0, 0), Decimal::new(0, 0)),
+            },
+        };
+
+
+        // TODO: all these commented code must be placed in separate functions
+        // let mut earliest_date : Option<NaiveDate> = None; // earliest buy_date of trade or dividend settlement date
+        // let mut latest_date : Option<NaiveDate> = None; // latest sell_date of trade or dividend settlement date
+
+        // for trade in &broker_report.trades {
+        //     let buy_date = trade.buy_date;
+        //     let sell_date = trade.sell_date;
+
+        //     if earliest_date.is_none() {
+        //         earliest_date = Some(buy_date);
+        //     } else {
+        //         if buy_date < earliest_date.unwrap() {
+        //             earliest_date = Some(buy_date);
+        //         }
+        //     }
+
+        //     if latest_date.is_none() {
+        //         latest_date = Some(sell_date);
+        //     } else {
+        //         if sell_date > latest_date.unwrap() {
+        //             latest_date = Some(sell_date);
+        //         }
+        //     }
+        // }
+
+        // for dividend in &broker_report.dividends {
+        //     let date = dividend.date;
+
+        //     if earliest_date.is_none() {
+        //         earliest_date = Some(date);
+        //     } else {
+        //         if date < earliest_date.unwrap() {
+        //             earliest_date = Some(date);
+        //         }
+        //     }
+
+        //     if latest_date.is_none() {
+        //         latest_date = Some(date);
+        //     } else {
+        //         if date > latest_date.unwrap() {
+        //             latest_date = Some(date);
+        //         }
+        //     }
+        // }
+
+        // let preserved_rates = self.preserve_convert_rate(
+        //     broker_report, earliest_date.unwrap(), latest_date.unwrap()).unwrap();
+
+        for trade in &broker_report.trades {
+            let buy_price = trade.buy_price;
+            let sell_price = trade.sell_price;
+            let currency = trade.currency;
+
+            let buy_price_uah = self.convert_to_uah(buy_price, currency, trade.buy_date)?.round_dp(2);
+            let sell_price_uah = self.convert_to_uah(sell_price, currency, trade.sell_date)?.round_dp(2);
+
+            let fin_result_uah = sell_price_uah - buy_price_uah;
+
+            investment_tax_report.investment_ops.trades.push(UaTradeReport {
+                buy_date: trade.buy_date,
+                sell_date: trade.sell_date,
+                name: trade.name.clone(),
+                buy_price_uah,
+                sell_price_uah,
+                fin_result_uah,
+            });
+
+            investment_tax_report.investment_ops.total_fin_result += fin_result_uah;
+            
+            // TODO: implement tax calculation
+            // let tax_spec = self.tax_policy_by_date(trade.sell_date)?;
+        }
+
+        for dividend in broker_report.dividends {
+            
+
+            let amount = dividend.amount;
+            let currency = dividend.currency;
+            let amount_uah = self.convert_to_uah(amount, currency, dividend.date)?.round_dp(2);
+            investment_tax_report.dividend_ops.income_total += amount_uah;
+
+
+            println!("Name: {}, Currency: {}, Amount USD: {}, Amount UAH: {} , Date: {}",
+                dividend.name, dividend.currency, dividend.amount, amount_uah, dividend.date);
+        }
+
+        // BUG: 1615,97 must be, but 1615,82 for some reason
+        investment_tax_report.dividend_ops.income_total = investment_tax_report.dividend_ops.income_total.round_dp(2);
+    
+
+        Ok(investment_tax_report)
+    }
+
+    // TODO: this function supposes there is only one currency in the report, but it's not true
+    fn preserve_convert_rate(&self, currency: Currency, start_date: NaiveDate, end_date: NaiveDate) -> Result<Vec<CurrencyRate>, UaTaxReportGeneratorError> {
+        let convert_rates = self.national_bank_rate_provider.convert_range(currency, Currency::UAH, start_date, end_date);
+        match convert_rates {
+            Ok(rates) => {
+                Ok(rates)
+            },
+            Err(e) => {
+                println!("Error preserving currency rates: {:?}", e);
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+            }
+        }
+    }
+
+    fn convert_to_uah_from_preserved(&self, amount: Decimal, currency: Currency, date: NaiveDate, preserved_rates: &Vec<CurrencyRate>) -> Result<Decimal, UaTaxReportGeneratorError> {
+        let mut rate: Option<CurrencyRate> = None;
+        for r in preserved_rates {
+            if r.date == date && r.from == currency {
+                rate = Some(r.clone());
+                break;
+            }
+        }
+
+        if rate.is_none() {
+            return Err(UaTaxReportGeneratorError::CurrencyConvertorError);
+        }
+
+        Ok(amount * rate.unwrap().rate)
+    }
+
+    fn convert_to_uah(&self, amount: Decimal, currency: Currency, date: NaiveDate) -> Result<Decimal, UaTaxReportGeneratorError> {
+        let currency_rate: Result<CurrencyRate, CurrencyConvertorError> = self.national_bank_rate_provider.convert(currency, Currency::UAH, date);
+        match currency_rate {
+            Ok(rate) => {
+                println!("Rate: {:?}", rate);
+                Ok(amount * rate.rate)
+            },
+            Err(e) => {
+                println!("Error converting currency: {:?}", e);
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+            }
+        }
+    }
+
+    fn tax_policy_by_date(&self, date: NaiveDate) -> Result<TaxPolicy, UaTaxReportGeneratorError> {
+        // date must be bigger than the earliest tax policy date
+        
+        let mut earliest_compatible_policy : Option<TaxSpecByDate> = None;
+        for policy in self.tax_policy.sub_policies.iter() {
+            if earliest_compatible_policy.is_none() {
+                if date >= policy.start_date {
+                    earliest_compatible_policy = Some(policy.clone());
+                } else {
+                    continue;
+                }
+            }
+            if policy.start_date < earliest_compatible_policy.clone().unwrap().start_date && date >= policy.start_date {
+                earliest_compatible_policy = Some(policy.clone());
+            }
+        }
+
+        if earliest_compatible_policy.is_none() {
+            return Err(UaTaxReportGeneratorError::TaxPolicyError);
+        } else {
+            return Ok(TaxPolicy {
+                sub_policies: vec![earliest_compatible_policy.unwrap()],
+            });
+        }
+    }
+
+}

@@ -36,8 +36,6 @@ fn fetch_nbu_exchange_rate(currency: Currency, start_date: chrono::NaiveDate, en
     match response {
         Ok(response) => {
             let body = response.into_string().unwrap();
-            println!("Body: {}", body);
-
             let exchange: XmlExchange = from_str(body.as_str()).unwrap();
             return Ok(exchange);
         },

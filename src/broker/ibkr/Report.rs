@@ -5,181 +5,181 @@ use serde::Deserialize;
 #[serde(default)]
 pub struct FlexQueryResponse {
     #[serde(rename = "@queryName")]
-    query_name: String,
+    pub query_name: String,
     
     #[serde(rename = "@type")]
-    type_str: String,
+    pub type_str: String,
 
 
     #[serde(rename = "FlexStatements")]
-    flex_statements: FlexStatements,
+    pub flex_statements: FlexStatements,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
 pub struct FlexStatements {
     #[serde(rename = "FlexStatement")]
-    flex_statement: Vec<FlexStatement>,
+    pub flex_statement: Vec<FlexStatement>,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
 pub struct FlexStatement {
     #[serde(rename = "@accountId")]
-    account_id: String,
+    pub account_id: String,
 
     #[serde(rename = "@fromDate")]
-    from_date: String,
+    pub from_date: String,
 
     #[serde(rename = "@toDate")]
-    to_date: String,
+    pub to_date: String,
 
     #[serde(rename = "@whenGenerated")]
-    when_generated: String,
+    pub when_generated: String,
 
     #[serde(rename = "Trades")]
-    trades: Trades,
+    pub trades: Trades,
 
     #[serde(rename = "CashTransactions")]
-    cash_transactions: CashTransactions,
+    pub cash_transactions: CashTransactions,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
 pub struct Trades {
     #[serde(rename = "Lot")]
-    lots: Vec<Lot>,
+    pub lots: Vec<Lot>,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
-struct Lot {
+pub struct Lot {
     #[serde(rename = "@accountId")]
-    account_id: String,
+    pub account_id: String,
 
     #[serde(rename = "@currency")]
-    currency: String,
+    pub currency: String,
 
     #[serde(rename = "@fxRateToBase")]
-    fx_rate_to_base: String,
+    pub fx_rate_to_base: String,
 
     #[serde(rename = "@assetCategory")]
-    asset_category: String,
+    pub asset_category: String,
 
     #[serde(rename = "@subCategory")]
-    sub_category: String,
+    pub sub_category: String,
 
     #[serde(rename = "@symbol")]
-    symbol: String,
+    pub symbol: String,
 
     #[serde(rename = "@description")]
-    description: String,
+    pub description: String,
 
     #[serde(rename = "@securityID")]
-    security_id: String,
+    pub security_id: String,
 
     #[serde(rename = "@securityIDType")]
-    security_id_type: String,
+    pub security_id_type: String,
 
     #[serde(rename = "@listingExchange")]
-    listing_exchange: String,
+    pub listing_exchange: String,
 
     #[serde(rename = "@reportDate")]
-    report_date: String,
+    pub report_date: String,
 
     #[serde(rename = "@dateTime")]
-    date_time: String,
+    pub date_time: String,
 
     #[serde(rename = "@tradeDate")]
-    trade_date: String,
+    pub trade_date: String,
 
     #[serde(rename = "@exchange")]
-    exchange: String,
+    pub exchange: String,
 
     #[serde(rename = "@quantity")]
-    quantity: String,
+    pub quantity: String,
 
     #[serde(rename = "@tradePrice")]
-    trade_price: String,
+    pub trade_price: String,
 
     #[serde(rename = "@cost")]
-    cost: String,
+    pub cost: String,
 
     #[serde(rename = "@fifoPnlRealized")]
-    fifo_pnl_realized: String,
+    pub fifo_pnl_realized: String,
 
     #[serde(rename = "@buySell")]
-    buy_sell: String,
+    pub buy_sell: String,
 
     #[serde(rename = "@transactionID")]
-    transaction_id: String,
+    pub transaction_id: String,
 
     #[serde(rename = "@openDateTime")]
-    open_date_time: String,
+    pub open_date_time: String,
 
     #[serde(rename = "@levelOfDetail")]
-    level_of_detail: String, // wtf is that?
+    pub level_of_detail: String, // wtf is that?
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
 pub struct CashTransactions {
     #[serde(rename = "CashTransaction")]
-    cash_transactions: Vec<CashTransaction>,
+    pub cash_transactions: Vec<CashTransaction>,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
-struct CashTransaction {
+pub struct CashTransaction {
     #[serde(rename = "@accountId")]
-    account_id: String,
+    pub account_id: String,
 
     #[serde(rename = "@currency")]
-    currency: String,
+    pub currency: String,
 
     #[serde(rename = "@assetCategory")]
-    asset_category: String,
+    pub asset_category: String,
 
     #[serde(rename = "@subCategory")]
-    sub_category: String,
+    pub sub_category: String,
 
     #[serde(rename = "@symbol")]
-    symbol: String,
+    pub symbol: String,
 
     #[serde(rename = "@description")]
-    description: String,
+    pub description: String,
 
     #[serde(rename = "@securityID")]
-    security_id: String,
+    pub security_id: String,
 
     #[serde(rename = "@securityIDType")]
-    security_id_type: String,
+    pub security_id_type: String,
 
     #[serde(rename = "@listingExchange")]
-    listing_exchange: String, 
+    pub listing_exchange: String, 
 
     #[serde(rename = "@multiplier")]
-    multiplier: String, // what does it multiplie?
+    pub multiplier: String, // what does it multiplie?
 
     #[serde(rename = "@dateTime")]
-    date_time: String,
+    pub date_time: String,
 
     #[serde(rename = "@settleDate")]
-    settle_date: String,
+    pub settle_date: String,
 
     // negative for taxes, positive for dividends
     #[serde(rename = "@amount")]
-    amount: String,
+    pub amount: String,
 
     #[serde(rename = "@type")]
-    transaction_type: String,
+    pub transaction_type: String,
 
     #[serde(rename = "@transactionID")]
-    transaction_id: String,
+    pub transaction_id: String,
 
     #[serde(rename = "@reportDate")]
-    report_date: String,
+    pub report_date: String,
 
     #[serde(rename = "@levelOfDetail")]
-    level_of_detail: String, // wtf is that?
+    pub level_of_detail: String, // wtf is that?
 }
