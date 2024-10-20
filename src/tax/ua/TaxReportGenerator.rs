@@ -191,10 +191,6 @@ impl UaTaxReportGenerator {
             let currency = dividend.currency;
             let amount_uah = self.convert_to_uah(amount, currency, dividend.date)?.round_dp(2);
             investment_tax_report.dividend_ops.income_total += amount_uah;
-
-
-            println!("Name: {}, Currency: {}, Amount USD: {}, Amount UAH: {} , Date: {}",
-                dividend.name, dividend.currency, dividend.amount, amount_uah, dividend.date);
         }
 
         // BUG: 1615,97 must be, but 1615,82 for some reason
@@ -238,7 +234,6 @@ impl UaTaxReportGenerator {
         let currency_rate: Result<CurrencyRate, CurrencyConvertorError> = self.national_bank_rate_provider.convert(currency, Currency::UAH, date);
         match currency_rate {
             Ok(rate) => {
-                println!("Rate: {:?}", rate);
                 Ok(amount * rate.rate)
             },
             Err(e) => {
