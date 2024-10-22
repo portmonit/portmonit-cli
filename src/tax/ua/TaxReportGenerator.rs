@@ -16,6 +16,15 @@ pub struct UaTax {
 }
 
 impl UaTax {
+    pub fn round_dp(&self, dp: u32) -> UaTax {
+        UaTax {
+            personal_income_tax: self.personal_income_tax.round_dp(dp),
+            military_tax: self.military_tax.round_dp(dp),
+        }
+    }
+}
+
+impl UaTax {
     pub fn new(personal_income_tax: Decimal, military_tax: Decimal) -> UaTax {
         UaTax {
             personal_income_tax,
@@ -139,9 +148,15 @@ impl UaTaxReportGenerator {
 
             investment_tax_report.investment_ops.total_fin_result += fin_result_uah;
             
-            // TODO: implement tax calculation
-            // let tax_spec = self.tax_policy_by_date(trade.sell_date)?;
+            // tax calculation
+            let trade_date = trade.sell_date;
+            let tax_spec = self.tax_policy_by_date(trade_date)?;
+            let income_tax = fin_result_uah * tax_spec.personal_income_tax;
+            let military_tax = fin_result_uah * tax_spec.military_tax;
+            investment_tax_report.investment_ops.total_tax =
+                investment_tax_report.investment_ops.total_tax + UaTax::new(income_tax, military_tax);
         }
+        investment_tax_report.investment_ops.total_tax = investment_tax_report.investment_ops.total_tax.round_dp(2);
 
         for dividend in broker_report.dividends {
             
@@ -150,7 +165,14 @@ impl UaTaxReportGenerator {
             let currency = dividend.currency;
             let amount_uah = self.convert_to_uah_from_preserved_by_currency(amount, currency, dividend.date, &preserved_rated_by_currency)?.round_dp(2);
             investment_tax_report.dividend_ops.income_total += amount_uah;
+
+            // tax calculation
+            let tax_spec = self.tax_policy_by_date(dividend.date)?;
+            let income_tax = amount_uah * tax_spec.personal_income_tax;
+            let military_tax = amount_uah * tax_spec.military_tax;
+            investment_tax_report.dividend_ops.total_tax = investment_tax_report.dividend_ops.total_tax + UaTax::new(income_tax, military_tax);
         }
+        investment_tax_report.dividend_ops.total_tax = investment_tax_report.dividend_ops.total_tax.round_dp(2);
 
         investment_tax_report.dividend_ops.income_total = investment_tax_report.dividend_ops.income_total.round_dp(2);
 
@@ -233,7 +255,7 @@ impl UaTaxReportGenerator {
         }
     }
 
-    fn tax_policy_by_date(&self, date: NaiveDate) -> Result<TaxPolicy, UaTaxReportGeneratorError> {
+    fn tax_policy_by_date(&self, date: NaiveDate) -> Result<TaxSpecByDate, UaTaxReportGeneratorError> {
         // date must be bigger than the earliest tax policy date
         
         let mut earliest_compatible_policy : Option<TaxSpecByDate> = None;
@@ -250,13 +272,7 @@ impl UaTaxReportGenerator {
             }
         }
 
-        if earliest_compatible_policy.is_none() {
-            return Err(UaTaxReportGeneratorError::TaxPolicyError);
-        } else {
-            return Ok(TaxPolicy {
-                sub_policies: vec![earliest_compatible_policy.unwrap()],
-            });
-        }
+        earliest_compatible_policy.ok_or(UaTaxReportGeneratorError::TaxPolicyError)
     }
 
 }
