@@ -77,8 +77,9 @@ pub struct UaTradeReport {
 #[derive(Debug)]
 pub enum UaTaxReportGeneratorError {
     BrokerError,
+    BrokerReportDatesRandeError(String),
     TaxPolicyError,
-    CurrencyConvertorError,
+    CurrencyConvertorError(String),
 }
 
 pub struct UaTaxReportGenerator {
@@ -157,36 +158,25 @@ impl UaTaxReportGenerator {
     }
 
     fn get_total_range_by_report(&self, broker_report: &BrokerReport) -> Result<(NaiveDate, NaiveDate), UaTaxReportGeneratorError> {
-        let mut earliest_date : Option<NaiveDate> = None;
-        let mut latest_date : Option<NaiveDate> = None;
-
         let min_date_trades = broker_report.trades.iter().map(|trade| { trade.buy_date }).min();
         let min_date_dividends = broker_report.dividends.iter().map(|dividend| { dividend.date }).min();
 
         let max_date_trades = broker_report.trades.iter().map(|trade| { trade.sell_date }).max();
         let max_date_dividends = broker_report.dividends.iter().map(|dividend| { dividend.date }).max();
 
-        if min_date_trades.is_some() && min_date_dividends.is_some() {
-            earliest_date = Some(min_date_trades.unwrap().min(min_date_dividends.unwrap()));
-        } else if min_date_trades.is_some() {
-            earliest_date = Some(min_date_trades.unwrap());
-        } else if min_date_dividends.is_some() {
-            earliest_date = Some(min_date_dividends.unwrap());
-        } else {
-            return Err(UaTaxReportGeneratorError::BrokerError);
-        }
+        let earliest_date = min_date_trades
+            .into_iter()
+            .chain(min_date_dividends)
+            .min()
+            .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(format!("Could not get earliest date")))?;
 
-        if max_date_trades.is_some() && max_date_dividends.is_some() {
-            latest_date = Some(max_date_trades.unwrap().max(max_date_dividends.unwrap()));
-        } else if max_date_trades.is_some() {
-            latest_date = Some(max_date_trades.unwrap());
-        } else if max_date_dividends.is_some() {
-            latest_date = Some(max_date_dividends.unwrap());
-        } else {
-            return Err(UaTaxReportGeneratorError::BrokerError);
-        }
+        let latest_date = max_date_trades
+            .into_iter()
+            .chain(max_date_dividends)
+            .max()
+            .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(format!("Could not get latest date")))?;
 
-        Ok((earliest_date.unwrap(), latest_date.unwrap()))
+        Ok((earliest_date, latest_date))
     }
 
     fn preserve_convert_rate_by_currencies(&self, currencies: HashSet<Currency>, start_date: NaiveDate, end_date: NaiveDate) -> Result<HashMap<Currency, Vec<CurrencyRate>>, UaTaxReportGeneratorError> {
@@ -206,7 +196,7 @@ impl UaTaxReportGenerator {
             },
             Err(e) => {
                 println!("Error preserving currency rates: {:?}", e);
-                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError("Error preserving currency rates".to_string()))
             }
         }
     }
@@ -221,14 +211,12 @@ impl UaTaxReportGenerator {
                         Ok(amount * rate.rate)
                     },
                     None => {
-                        println!("Error converting currency: {:?}", UaTaxReportGeneratorError::CurrencyConvertorError);
-                        Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+                        Err(UaTaxReportGeneratorError::CurrencyConvertorError(format!("Could not find rate for currency {} at date {}", currency, date)))
                     }
                 }
             },
             None => {
-                println!("Error converting currency: {:?}", UaTaxReportGeneratorError::CurrencyConvertorError);
-                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError("Could not get preserved rates".to_string()))
             }
         }
     }
@@ -240,8 +228,7 @@ impl UaTaxReportGenerator {
                 Ok(amount * rate.rate)
             },
             Err(e) => {
-                println!("Error converting currency: {:?}", e);
-                Err(UaTaxReportGeneratorError::CurrencyConvertorError)
+                Err(UaTaxReportGeneratorError::CurrencyConvertorError(format!("Error converting currency: {:?}", e)))
             }
         }
     }
