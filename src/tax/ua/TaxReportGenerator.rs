@@ -243,18 +243,6 @@ impl UaTaxReportGenerator {
         }
     }
 
-    fn convert_to_uah(&self, amount: Decimal, currency: Currency, date: NaiveDate) -> Result<Decimal, UaTaxReportGeneratorError> {
-        let currency_rate: Result<CurrencyRate, CurrencyConvertorError> = self.national_bank_rate_provider.convert(currency, Currency::UAH, date);
-        match currency_rate {
-            Ok(rate) => {
-                Ok(amount * rate.rate)
-            },
-            Err(e) => {
-                Err(UaTaxReportGeneratorError::CurrencyConvertorError(format!("Error converting currency: {:?}", e)))
-            }
-        }
-    }
-
     fn tax_policy_by_date(&self, date: NaiveDate) -> Result<TaxSpecByDate, UaTaxReportGeneratorError> {
         // date must be bigger than the earliest tax policy date
         
