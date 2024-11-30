@@ -245,7 +245,7 @@ impl UaTaxReportGenerator {
 
     fn tax_policy_by_date(&self, date: NaiveDate) -> Result<TaxSpecByDate, UaTaxReportGeneratorError> {
         // date must be bigger than the earliest tax policy date
-        
+
         let mut earliest_compatible_policy : Option<TaxSpecByDate> = None;
         for policy in self.tax_policy.sub_policies.iter() {
             if earliest_compatible_policy.is_none() {
