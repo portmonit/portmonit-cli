@@ -149,6 +149,8 @@ impl UaTaxReportGenerator {
             investment_tax_report.investment_ops.total_fin_result += fin_result_uah;
             
             // tax calculation
+            // TODO: probably it needs to be refactored so after 01.12.2024 till the end of 2024
+            //       if financial result is then taxes are zero but not negative
             let trade_date = trade.sell_date;
             let tax_spec = self.tax_policy_by_date(trade_date)?;
             let income_tax = fin_result_uah * tax_spec.personal_income_tax;
