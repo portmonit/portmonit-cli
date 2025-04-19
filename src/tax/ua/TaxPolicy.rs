@@ -27,7 +27,7 @@ pub fn default_tax_policy() -> TaxPolicy {
             TaxSpecByDate {
                 personal_income_tax: dec!(0.18),
                 military_tax: dec!(0.05),
-                start_date: NaiveDate::from_ymd(2024, 12, 1),
+                start_date: NaiveDate::from_ymd(2025, 1, 1),
             },
         ],
     }
