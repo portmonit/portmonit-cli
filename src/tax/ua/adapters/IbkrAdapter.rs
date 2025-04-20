@@ -39,8 +39,8 @@ impl BrokerReportProvider for IbkrAdapter {
                         let cost = Decimal::from_str_exact(&trade.cost).unwrap();
                         let fifo_pnl_realized = Decimal::from_str_exact(&trade.fifo_pnl_realized).unwrap();
 
-                        let buy_price = cost;
-                        let sell_price = cost + fifo_pnl_realized;
+                        let buy_price = cost.round_dp(2);
+                        let sell_price = (cost + fifo_pnl_realized).round_dp(2);
 
                         // name consist of assert category and description
                         // assert category is 'Акції' for 'STK' and 'ETF' for 'ETF'
@@ -78,7 +78,7 @@ impl BrokerReportProvider for IbkrAdapter {
 
                     for dividend in statement.cash_transactions.cash_transactions {
                         let date = NaiveDate::parse_from_str(&dividend.settle_date, "%Y%m%d").unwrap();
-                        let amount = Decimal::from_str_exact(&dividend.amount).unwrap();
+                        let amount = Decimal::from_str_exact(&dividend.amount).unwrap().round_dp(2);
                         if amount.is_sign_negative() {
                             // negative amount means tax
                             continue;
