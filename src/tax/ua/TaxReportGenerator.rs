@@ -137,6 +137,8 @@ impl UaTaxReportGenerator {
 
             let fin_result_uah = sell_price_uah - buy_price_uah;
 
+            println!("Trade of {}: buy price: {} {}, {} UAH, sell price: {} {}, {} UAH, buy date: {}, sell date: {}", trade.name, trade.buy_price, trade.currency, buy_price_uah, trade.sell_price, trade.currency, sell_price_uah, trade.buy_date.to_string(), trade.sell_date.to_string());
+
             investment_tax_report.investment_ops.trades.push(UaTradeReport {
                 buy_date: trade.buy_date,
                 sell_date: trade.sell_date,
@@ -161,12 +163,12 @@ impl UaTaxReportGenerator {
         investment_tax_report.investment_ops.total_tax = investment_tax_report.investment_ops.total_tax.round_dp(2);
 
         for dividend in broker_report.dividends {
-            
-
             let amount = dividend.amount;
             let currency = dividend.currency;
             let amount_uah = self.convert_to_uah_from_preserved_by_currency(amount, currency, dividend.date, &preserved_rated_by_currency)?.round_dp(2);
             investment_tax_report.dividend_ops.income_total += amount_uah;
+
+            println!("Dividend for {}: {} {}, {} UAH", dividend.name, amount, currency, amount_uah);
 
             // tax calculation
             let tax_spec = self.tax_policy_by_date(dividend.date)?;
