@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
+use quick_xml::de::from_str;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use quick_xml::de::from_str;
 use ureq;
 
 use crate::tax::CurrencyConvertor::*;
@@ -28,19 +28,25 @@ struct XmlCurrency {
     calcdate: String,
 }
 
-fn fetch_nbu_exchange_rate(currency: Currency, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Result<XmlExchange, CurrencyConvertorError> {
+fn fetch_nbu_exchange_rate(
+    currency: Currency,
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+) -> Result<XmlExchange, CurrencyConvertorError> {
     let url = format!("https://bank.gov.ua/NBU_Exchange/exchange_site?start={}&end={}&valcode={}&sort=exchangedate&order=desc",
         start_date.format("%Y%m%d"), end_date.format("%Y%m%d"), currency.to_string().to_ascii_lowercase());
-    
+
     let response = ureq::get(url.as_str()).call();
     match response {
         Ok(response) => {
             let body = response.into_string().unwrap();
             let exchange: XmlExchange = from_str(body.as_str()).unwrap();
             return Ok(exchange);
-        },
+        }
         Err(e) => {
-            return Err(CurrencyConvertorError::CurrencyNotSupported{details: format!("Error fetching exchange rate: {:?}", e)})
+            return Err(CurrencyConvertorError::CurrencyNotSupported {
+                details: format!("Error fetching exchange rate: {:?}", e),
+            })
         }
     }
 }
@@ -48,7 +54,12 @@ fn fetch_nbu_exchange_rate(currency: Currency, start_date: chrono::NaiveDate, en
 pub struct NationalBank {}
 
 impl CurrencyRateProvider for NationalBank {
-    fn convert(&self, from: Currency, to: Currency, date: chrono::NaiveDate) -> Result<CurrencyRate, CurrencyConvertorError> {
+    fn convert(
+        &self,
+        from: Currency,
+        to: Currency,
+        date: chrono::NaiveDate,
+    ) -> Result<CurrencyRate, CurrencyConvertorError> {
         const EXPECTED_ELEMENTS: usize = 1;
         let res = self.convert_range(from, to, date, date);
         match res {
@@ -56,25 +67,41 @@ impl CurrencyRateProvider for NationalBank {
                 if rates.len() == EXPECTED_ELEMENTS {
                     return Ok(rates.remove(0));
                 } else {
-                    return Err(CurrencyConvertorError::CurrencyNotSupported{
-                        details: format!("Error converting currency: from {:?} to {:?} on date {:?}, len = {:?}", from, to, date, rates.len())
+                    return Err(CurrencyConvertorError::CurrencyNotSupported {
+                        details: format!(
+                            "Error converting currency: from {:?} to {:?} on date {:?}, len = {:?}",
+                            from,
+                            to,
+                            date,
+                            rates.len()
+                        ),
                     });
                 }
-            },
+            }
             Err(e) => {
                 return Err(e);
             }
-        }        
+        }
     }
 
-    fn convert_range(&self, from: Currency, to: Currency, start_date: chrono::NaiveDate, end_date: chrono::NaiveDate) -> Result<Vec<CurrencyRate>, CurrencyConvertorError> {
+    fn convert_range(
+        &self,
+        from: Currency,
+        to: Currency,
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+    ) -> Result<Vec<CurrencyRate>, CurrencyConvertorError> {
         // Ukraine National Bank supports only UAH as base currency
         if to != Currency::UAH {
-            return Err(CurrencyConvertorError::CurrencyNotSupported{details: format!("Currency not supported: {:?}", from)});
+            return Err(CurrencyConvertorError::CurrencyNotSupported {
+                details: format!("Currency not supported: {:?}", from),
+            });
         }
 
         if from == Currency::UAH {
-            return Err(CurrencyConvertorError::CurrencyNotSupported{details: format!("'From' currency can't be: {:?}", from)});
+            return Err(CurrencyConvertorError::CurrencyNotSupported {
+                details: format!("'From' currency can't be: {:?}", from),
+            });
         }
 
         let exchange = fetch_nbu_exchange_rate(from, start_date, end_date);
@@ -87,12 +114,16 @@ impl CurrencyRateProvider for NationalBank {
                         from: from,
                         to: to,
                         rate: decimal_rate,
-                        date: chrono::NaiveDate::parse_from_str(currency.exchangedate.as_str(), "%d.%m.%Y").unwrap(),
+                        date: chrono::NaiveDate::parse_from_str(
+                            currency.exchangedate.as_str(),
+                            "%d.%m.%Y",
+                        )
+                        .unwrap(),
                     };
                     rates.push(rate);
                 }
                 return Ok(rates);
-            },
+            }
             Err(e) => {
                 return Err(e);
             }
@@ -188,7 +219,11 @@ mod tests {
     // this test requires internet connection and works only with real data
     #[test]
     fn test_fetch_nbu_exchange_rate() {
-        let result = fetch_nbu_exchange_rate(Currency::USD, chrono::NaiveDate::from_ymd(2022, 1, 2), chrono::NaiveDate::from_ymd(2022, 1, 2));
+        let result = fetch_nbu_exchange_rate(
+            Currency::USD,
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+        );
         assert!(result.is_ok());
         let exchange = result.unwrap();
         assert_eq!(exchange.currencies.len(), 1);
@@ -198,10 +233,18 @@ mod tests {
 
     #[test]
     fn test_fetch_nbu_exchange_rate_one_el() {
-        let raw_result = fetch_nbu_exchange_rate(Currency::EUR, chrono::NaiveDate::from_ymd(2022, 1, 2), chrono::NaiveDate::from_ymd(2022, 1, 2));
+        let raw_result = fetch_nbu_exchange_rate(
+            Currency::EUR,
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+        );
 
-        let nbu = NationalBank{};
-        let trait_result = nbu.convert(Currency::EUR, Currency::UAH, chrono::NaiveDate::from_ymd(2022, 1, 2));
+        let nbu = NationalBank {};
+        let trait_result = nbu.convert(
+            Currency::EUR,
+            Currency::UAH,
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+        );
 
         assert!(raw_result.is_ok());
         assert!(trait_result.is_ok());
@@ -224,7 +267,8 @@ mod tests {
             from: Currency::EUR,
             to: Currency::UAH,
             rate: Decimal::from_str(currency.rate.as_str()).unwrap(),
-            date: chrono::NaiveDate::parse_from_str(currency.exchangedate.as_str(), "%d.%m.%Y").unwrap(),
+            date: chrono::NaiveDate::parse_from_str(currency.exchangedate.as_str(), "%d.%m.%Y")
+                .unwrap(),
         };
 
         assert_eq!(trait_exchange, raw_rate);
@@ -232,8 +276,13 @@ mod tests {
 
     #[test]
     fn test_nbu_multiple_exchange_rates() {
-        let nbu = NationalBank{};
-        let result = nbu.convert_range(Currency::USD, Currency::UAH, chrono::NaiveDate::from_ymd(2022, 1, 1), chrono::NaiveDate::from_ymd(2022, 1, 2));
+        let nbu = NationalBank {};
+        let result = nbu.convert_range(
+            Currency::USD,
+            Currency::UAH,
+            chrono::NaiveDate::from_ymd(2022, 1, 1),
+            chrono::NaiveDate::from_ymd(2022, 1, 2),
+        );
         assert!(result.is_ok());
         let exchange = result.unwrap();
         assert_eq!(exchange.len(), 2);
