@@ -1,15 +1,13 @@
 use serde::Deserialize;
 
-
 #[derive(Debug, PartialEq, Deserialize, Default)]
 #[serde(default)]
 pub struct FlexQueryResponse {
     #[serde(rename = "@queryName")]
     pub query_name: String,
-    
+
     #[serde(rename = "@type")]
     pub type_str: String,
-
 
     #[serde(rename = "FlexStatements")]
     pub flex_statements: FlexStatements,
@@ -156,7 +154,7 @@ pub struct CashTransaction {
     pub security_id_type: String,
 
     #[serde(rename = "@listingExchange")]
-    pub listing_exchange: String, 
+    pub listing_exchange: String,
 
     #[serde(rename = "@multiplier")]
     pub multiplier: String, // what does it multiplie?

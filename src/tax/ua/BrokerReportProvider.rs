@@ -1,6 +1,6 @@
+use crate::tax::CurrencyConvertor::Currency;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use crate::tax::CurrencyConvertor::Currency;
 
 pub struct BrokerReport {
     pub trades: Vec<BrokerTrade>,
@@ -28,4 +28,3 @@ pub trait BrokerReportProvider {
 }
 
 pub type BrokerReportProviderBox = Box<dyn BrokerReportProvider>;
-

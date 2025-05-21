@@ -1,11 +1,11 @@
 use core::fmt;
 
-use rust_decimal::Decimal;
 use chrono::NaiveDate;
+use rust_decimal::Decimal;
 
 #[derive(Debug)]
 pub enum CurrencyConvertorError {
-    CurrencyNotSupported {details: String},
+    CurrencyNotSupported { details: String },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
@@ -13,7 +13,6 @@ pub enum Currency {
     UAH,
     USD,
     EUR,
-
     // add if you need
 }
 
@@ -23,7 +22,9 @@ impl Currency {
             "UAH" => Ok(Currency::UAH),
             "USD" => Ok(Currency::USD),
             "EUR" => Ok(Currency::EUR),
-            _ => Err(CurrencyConvertorError::CurrencyNotSupported {details: s.to_string()}),
+            _ => Err(CurrencyConvertorError::CurrencyNotSupported {
+                details: s.to_string(),
+            }),
         }
     }
 }
@@ -44,12 +45,22 @@ pub struct CurrencyRate {
 
 // received rate must represent how much of "to" currency is needed to buy 1 "from" currency
 pub trait CurrencyRateProvider {
-
     // single date
-    fn convert(&self, from: Currency, to: Currency, date: NaiveDate) -> Result<CurrencyRate, CurrencyConvertorError>;
-    
+    fn convert(
+        &self,
+        from: Currency,
+        to: Currency,
+        date: NaiveDate,
+    ) -> Result<CurrencyRate, CurrencyConvertorError>;
+
     // dates range
-    fn convert_range(&self, from: Currency, to: Currency, start_date: NaiveDate, end_date: NaiveDate) -> Result<Vec<CurrencyRate>, CurrencyConvertorError>;
+    fn convert_range(
+        &self,
+        from: Currency,
+        to: Currency,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<CurrencyRate>, CurrencyConvertorError>;
 }
 
 mod tests {
