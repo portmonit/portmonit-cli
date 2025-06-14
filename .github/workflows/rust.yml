@@ -1,6 +1,6 @@
-name: Rust
-
 runs-on: self-hosted
+
+name: Rust
 
 on:
   push:
