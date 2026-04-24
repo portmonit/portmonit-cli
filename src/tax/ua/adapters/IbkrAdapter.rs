@@ -76,7 +76,7 @@ impl BrokerReportProvider for IbkrAdapter {
                 .unwrap();
                 let sell_date = NaiveDate::parse_from_str(&trade.trade_date, "%Y%m%d").unwrap();
                 let cost = Decimal::from_str_exact(&trade.cost).unwrap();
-                let fifo_pnl_realized = Decimal::from_str_exact(&trade.fifo_pnl_realized).unwrap();
+                let fifo_pnl_realized = Decimal::from_str_exact(&trade.fifo_pnl_realized).unwrap().round_dp(2);
 
                 let buy_price = cost.round_dp(2);
                 let sell_price = (cost + fifo_pnl_realized).round_dp(2);
