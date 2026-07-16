@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use super::ReportParser::{ReportFormat, ReportParser, ReportParserError};
+use super::report_parser::{ReportFormat, ReportParser, ReportParserError};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrokerType {
     IBKR,
     // Add more broker types here as they are supported
+    #[allow(dead_code)] // reserved for detect_broker_type's future "unrecognized" case
     Unknown,
 }
 
@@ -14,9 +15,9 @@ pub struct BrokerReportParserFactory {}
 impl BrokerReportParserFactory {
     pub fn create_parser(broker_type: BrokerType) -> Box<dyn ReportParser> {
         match broker_type {
-            BrokerType::IBKR => Box::new(crate::broker::ibkr::ReportParser::IbkrReportParser::new(
-                String::new(),
-            )),
+            BrokerType::IBKR => {
+                Box::new(crate::broker::ibkr::report_parser::IbkrReportParser::new())
+            }
             // Add more cases for other broker types
             _ => panic!("Unsupported broker type: {:?}", broker_type),
         }

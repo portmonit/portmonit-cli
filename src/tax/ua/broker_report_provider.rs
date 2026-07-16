@@ -1,4 +1,4 @@
-use crate::tax::CurrencyConvertor::Currency;
+use crate::tax::currency_convertor::Currency;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 

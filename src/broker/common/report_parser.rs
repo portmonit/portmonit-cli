@@ -4,15 +4,21 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub struct BrokerRawReport {
     pub content: String,
+    #[allow(dead_code)] // kept alongside `content` for future format-aware parsing
     pub format: ReportFormat,
 }
 
 #[derive(Debug, Clone)]
 pub enum ReportFormat {
     XML,
+    // Not produced by any parser yet; reserved for brokers that report in these formats
+    #[allow(dead_code)]
     CSV,
+    #[allow(dead_code)]
     JSON,
+    #[allow(dead_code)]
     PDF,
+    #[allow(dead_code)]
     Custom(String),
 }
 
@@ -48,5 +54,6 @@ pub trait ReportParser {
     fn parse_from_content(&self, content: &str) -> Result<BrokerRawReport, ReportParserError>;
 
     // Get supported formats by this parser
+    #[allow(dead_code)] // part of the parser interface; not yet queried by any caller
     fn supported_formats(&self) -> Vec<ReportFormat>;
 }

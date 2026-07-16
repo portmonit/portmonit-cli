@@ -1,13 +1,12 @@
-use super::BrokerReportProvider::*;
-use super::NationalBank::NationalBank;
-use super::TaxPolicy::*;
-use crate::tax::CurrencyConvertor::*;
+use super::broker_report_provider::*;
+use super::national_bank::NationalBank;
+use super::tax_policy::*;
+use crate::tax::currency_convertor::*;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::*;
-use tabled::{Table, Tabled};
 
 #[derive(Debug)]
 pub struct UaTax {
@@ -78,7 +77,9 @@ pub struct UaTaxInvestmentOps {
     pub total_tax: UaTax,
 }
 
+// Fields are only read through the derived Debug output printed as the tax report.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct UaTradeReport {
     pub buy_date: NaiveDate,
     pub sell_date: NaiveDate,
@@ -88,7 +89,9 @@ pub struct UaTradeReport {
     pub fin_result_uah: Decimal,
 }
 
+// Variants/fields are only read through the derived Debug output printed on error.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum UaTaxReportGeneratorError {
     BrokerError,
     BrokerReportDatesRandeError(String),
