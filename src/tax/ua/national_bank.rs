@@ -41,13 +41,11 @@ fn fetch_nbu_exchange_rate(
         Ok(response) => {
             let body = response.into_string().unwrap();
             let exchange: XmlExchange = from_str(body.as_str()).unwrap();
-            return Ok(exchange);
+            Ok(exchange)
         }
-        Err(e) => {
-            return Err(CurrencyConvertorError::CurrencyNotSupported {
-                details: format!("Error fetching exchange rate: {:?}", e),
-            })
-        }
+        Err(e) => Err(CurrencyConvertorError::CurrencyNotSupported {
+            details: format!("Error fetching exchange rate: {:?}", e),
+        }),
     }
 }
 
@@ -65,9 +63,9 @@ impl CurrencyRateProvider for NationalBank {
         match res {
             Ok(mut rates) => {
                 if rates.len() == EXPECTED_ELEMENTS {
-                    return Ok(rates.remove(0));
+                    Ok(rates.remove(0))
                 } else {
-                    return Err(CurrencyConvertorError::CurrencyNotSupported {
+                    Err(CurrencyConvertorError::CurrencyNotSupported {
                         details: format!(
                             "Error converting currency: from {:?} to {:?} on date {:?}, len = {:?}",
                             from,
@@ -75,12 +73,10 @@ impl CurrencyRateProvider for NationalBank {
                             date,
                             rates.len()
                         ),
-                    });
+                    })
                 }
             }
-            Err(e) => {
-                return Err(e);
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -111,8 +107,8 @@ impl CurrencyRateProvider for NationalBank {
                 for currency in exchange.currencies.iter() {
                     let decimal_rate = Decimal::from_str(currency.rate.as_str()).unwrap();
                     let rate = CurrencyRate {
-                        from: from,
-                        to: to,
+                        from,
+                        to,
                         rate: decimal_rate,
                         date: chrono::NaiveDate::parse_from_str(
                             currency.exchangedate.as_str(),
@@ -122,11 +118,9 @@ impl CurrencyRateProvider for NationalBank {
                     };
                     rates.push(rate);
                 }
-                return Ok(rates);
+                Ok(rates)
             }
-            Err(e) => {
-                return Err(e);
-            }
+            Err(e) => Err(e),
         }
     }
 }

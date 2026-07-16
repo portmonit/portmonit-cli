@@ -169,7 +169,7 @@ impl UaTaxReportGenerator {
 
             let fin_result_uah = sell_price_uah - buy_price_uah;
 
-            println!("Trade of {}: buy price: {} {}, {} UAH, sell price: {} {}, {} UAH, buy date: {}, sell date: {}", trade.name, trade.buy_price, trade.currency, buy_price_uah, trade.sell_price, trade.currency, sell_price_uah, trade.buy_date.to_string(), trade.sell_date.to_string());
+            println!("Trade of {}: buy price: {} {}, {} UAH, sell price: {} {}, {} UAH, buy date: {}, sell date: {}", trade.name, trade.buy_price, trade.currency, buy_price_uah, trade.sell_price, trade.currency, sell_price_uah, trade.buy_date, trade.sell_date);
 
             investment_tax_report
                 .investment_ops
@@ -264,7 +264,7 @@ impl UaTaxReportGenerator {
             .chain(min_date_dividends)
             .min()
             .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(
-                format!("Could not get earliest date"),
+                "Could not get earliest date".to_string(),
             ))?;
 
         let latest_date = max_date_trades
@@ -272,7 +272,7 @@ impl UaTaxReportGenerator {
             .chain(max_date_dividends)
             .max()
             .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(
-                format!("Could not get latest date"),
+                "Could not get latest date".to_string(),
             ))?;
 
         Ok((earliest_date, latest_date))

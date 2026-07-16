@@ -70,7 +70,7 @@ impl BrokerReportProvider for IbkrAdapter {
             // Process trades
             for trade in statement.trades.lots {
                 let buy_date = NaiveDate::parse_from_str(
-                    &trade.open_date_time.split(';').nth(0).unwrap(),
+                    trade.open_date_time.split(';').nth(0).unwrap(),
                     "%Y%m%d",
                 )
                 .unwrap();
