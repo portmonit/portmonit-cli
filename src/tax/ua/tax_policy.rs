@@ -26,13 +26,13 @@ pub fn default_tax_policy() -> TaxPolicy {
                 military_tax: dec!(0.015),
 
                 // not sure it is needed to be added policy before this date
-                start_date: NaiveDate::from_ymd(2020, 1, 1),
-                end_date: Some(NaiveDate::from_ymd(2024, 12, 31)),
+                start_date: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+                end_date: Some(NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()),
             },
             TaxSpecByDate {
                 personal_income_tax: dec!(0.18),
                 military_tax: dec!(0.05),
-                start_date: NaiveDate::from_ymd(2025, 1, 1),
+                start_date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
                 end_date: None,
             },
         ],

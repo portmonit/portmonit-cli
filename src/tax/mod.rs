@@ -1,3 +1,3 @@
 pub mod ua;
 
-pub mod CurrencyConvertor;
+pub mod currency_convertor;
