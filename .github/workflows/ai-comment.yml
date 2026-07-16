@@ -1,11 +1,20 @@
 name: AI Comment (@claude)
 
-# Interactive mode: mention @claude in any issue or PR comment and describe
-# what you want. Typical use — after AI PR Review leaves warnings:
+# Interactive mode: mention @claude anywhere you can leave a comment and
+# describe what you want. Covered surfaces:
+#   - issue comments                     (issue_comment on an issue)
+#   - PR conversation comments           (issue_comment on a PR)
+#   - inline diff comments in a PR       (pull_request_review_comment)
+#   - review body on "Submit review"     (pull_request_review)
+# Typical use — after AI PR Review leaves warnings:
 #   "@claude застосуй зауваження з рев'ю і запуш фікси в цю гілку"
 on:
   issue_comment:
     types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   contents: write
@@ -13,14 +22,21 @@ permissions:
   issues: write
 
 concurrency:
-  group: ai-comment-${{ github.event.issue.number }}
+  group: ai-comment-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   respond:
     if: >-
-      contains(github.event.comment.body, '@claude') &&
-      !endsWith(github.event.comment.user.login, '[bot]')
+      (
+        (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+        contains(github.event.comment.body, '@claude') &&
+        !endsWith(github.event.comment.user.login, '[bot]')
+      ) || (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.review.body, '@claude') &&
+        !endsWith(github.event.review.user.login, '[bot]')
+      )
     runs-on: [self-hosted, ai]
     timeout-minutes: 60
     steps:
