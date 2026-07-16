@@ -1,0 +1,103 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ai-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: [self-hosted, ai]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+
+      # If the latest commit is our own linter-fix commit, skip the run —
+      # otherwise a PAT-triggered `synchronize` event would loop forever.
+      - name: Guard against self-triggered loop
+        id: guard
+        run: |
+          msg="$(git log -1 --pretty=%s)"
+          if [[ "$msg" == "style(ai): apply linter fixes"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Last commit is our own linter fix — skipping review."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run linters
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          cargo fmt --check > fmt-report.txt 2>&1 || true
+          cargo clippy --all-targets 2> clippy-report.txt || true
+
+      - name: Review PR with Claude
+        if: steps.guard.outputs.skip == 'false'
+        uses: anthropics/claude-code-action@v1
+        env:
+          # The runner is already an isolated Docker container; the action's
+          # bubblewrap sandbox can't work here (read-only /proc/sys), so opt out.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
+          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          # AI Fix opens PRs as the github-actions bot; allow reviewing them.
+          allowed_bots: "github-actions"
+          prompt: |
+            You are reviewing pull request #${{ github.event.pull_request.number }}
+            in ${{ github.repository }} (Rust CLI project). The PR branch is
+            already checked out.
+
+            Linter output is prepared for you in the repo root:
+            - fmt-report.txt   (cargo fmt --check)
+            - clippy-report.txt (cargo clippy)
+
+            Steps:
+
+            1. Study the diff:
+               gh pr diff ${{ github.event.pull_request.number }}
+               and read the surrounding code for context.
+
+            2. MECHANICAL FIXES: if fmt-report.txt or clippy-report.txt show
+               fixable problems, apply them:
+                 cargo fmt
+                 cargo clippy --fix --allow-dirty --all-targets
+               Then verify with `cargo build` and `cargo test`. If everything
+               passes, commit and push to the PR branch with EXACTLY this
+               commit message subject (the workflow's loop-guard depends on it):
+                 style(ai): apply linter fixes
+               If tests fail after the fixes, revert them (git checkout .) and
+               only report the linter findings instead.
+
+            3. REVIEW: inspect the diff for real problems — bugs, panics on
+               unwrap of untrusted input, error-handling gaps, incorrect logic,
+               API misuse, non-idiomatic Rust. Post inline comments on specific
+               lines using the GitHub review API:
+                 gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments \
+                   -f body='...' -f commit_id='<head sha>' -f path='<file>' -F line=<n> -f side=RIGHT
+               Only comment where you have a concrete, actionable finding.
+
+            4. SUMMARY: post one summary comment on the PR via
+               `gh pr comment` structured as:
+               ## 🤖 AI Review
+               - **Critical** (must fix before merge) — list or "none"
+               - **Warnings** — list or "none"
+               - **Nitpicks** — short list or "none"
+               - **Linter** — whether fixes were auto-applied and pushed
+               Keep it concise. Do not approve or request changes formally —
+               a human makes the final call.
+          claude_args: |
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"

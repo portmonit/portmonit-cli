@@ -1,0 +1,70 @@
+name: AI Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ai-issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  investigate:
+    # Don't react to issues opened by bots (including our own automation).
+    if: ${{ !endsWith(github.event.issue.user.login, '[bot]') }}
+    runs-on: [self-hosted, ai]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Investigate issue with Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          # The runner is already an isolated Docker container; the action's
+          # bubblewrap sandbox can't work here (read-only /proc/sys), so opt out.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
+          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          prompt: |
+            You are investigating GitHub issue #${{ github.event.issue.number }}
+            in repository ${{ github.repository }}.
+
+            Issue title: ${{ github.event.issue.title }}
+
+            Read the full issue body first:
+              gh issue view ${{ github.event.issue.number }} --json title,body,labels
+
+            Then investigate the codebase (this is a Rust CLI project; you may
+            run `cargo build`, `cargo test`, `cargo run -- ...` to reproduce).
+
+            Your job is ANALYSIS ONLY — do not modify any files, do not create
+            branches or PRs.
+
+            When done, post exactly one comment on the issue via:
+              gh issue comment ${{ github.event.issue.number }} --body-file <file>
+
+            The comment must be structured as:
+            ## 🔍 AI Investigation
+            - **Symptom** — what the issue describes, in one or two sentences.
+            - **Root cause** — the concrete cause, with file paths and line
+              references (e.g. `src/main.rs:42`). If you could not determine it
+              with confidence, say so honestly and list hypotheses instead.
+            - **Reproduction** — how you reproduced it (or why you couldn't).
+            - **Suggested fix** — a short plan of the change needed.
+            - **Complexity** — trivial / small / medium / large.
+            - End with: "_To let me implement this fix as a PR, add the
+              `ai-fix` label to this issue._"
+
+            Write the comment in the same language the issue was written in.
+
+            After posting the comment, add the label:
+              gh issue edit ${{ github.event.issue.number }} --add-label "ai-investigated"
+          claude_args: |
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(cargo:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*),Read,Grep,Glob"
