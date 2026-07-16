@@ -1,0 +1,82 @@
+name: AI Fix
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ai-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    if: github.event.label.name == 'ai-fix'
+    runs-on: [self-hosted, ai]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+
+      - name: Implement fix with Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          # The runner is already an isolated Docker container; the action's
+          # bubblewrap sandbox can't work here (read-only /proc/sys), so opt out.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
+          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          prompt: |
+            You must implement a fix for GitHub issue
+            #${{ github.event.issue.number }} in ${{ github.repository }}
+            (Rust CLI project) and open a pull request.
+
+            Steps:
+
+            1. Read the issue and all its comments (an earlier AI investigation
+               comment may already contain the root cause analysis — use it):
+                 gh issue view ${{ github.event.issue.number }} --comments
+
+            2. Create a working branch off the default branch:
+                 git checkout -b ai/issue-${{ github.event.issue.number }}
+
+            3. Implement the smallest correct fix. Follow the existing code
+               style. Add or update a test that reproduces the bug and proves
+               the fix. Do not refactor unrelated code.
+
+            4. Verify — ALL of these must pass before you may open the PR:
+                 cargo build
+                 cargo test
+                 cargo clippy --all-targets
+                 cargo fmt
+               Iterate until green. If after serious attempts you cannot make
+               it pass, do NOT push broken code: instead post a comment on the
+               issue explaining what you tried and what blocks the fix, then
+               remove the label:
+                 gh issue edit ${{ github.event.issue.number }} --remove-label "ai-fix"
+               and stop.
+
+            5. Commit with a clear message referencing the issue, then push:
+                 git push -u origin ai/issue-${{ github.event.issue.number }}
+
+            6. Open the PR:
+                 gh pr create \
+                   --title "fix: <short summary> (#${{ github.event.issue.number }})" \
+                   --body-file <file>
+               The body must include: what was broken, root cause, what was
+               changed, how it was tested, and the line
+               "Fixes #${{ github.event.issue.number }}".
+
+            7. Post a comment on the issue with a link to the created PR.
+
+            Write user-facing text (PR body, comments) in the same language
+            the issue was written in.
+          claude_args: |
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
