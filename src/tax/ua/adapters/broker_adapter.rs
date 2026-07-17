@@ -1,6 +1,5 @@
-use crate::broker::common::BrokerReportParserFactory::{BrokerReportParserFactory, BrokerType};
-use crate::broker::common::ReportParser::{BrokerRawReport, ReportParser};
-use crate::tax::ua::BrokerReportProvider::{BrokerReport, BrokerReportProvider};
+use crate::broker::common::broker_report_parser_factory::{BrokerReportParserFactory, BrokerType};
+use crate::broker::common::report_parser::{BrokerRawReport, ReportParser};
 
 // Abstract adapter that can work with any broker implementation
 pub struct BrokerAdapter {

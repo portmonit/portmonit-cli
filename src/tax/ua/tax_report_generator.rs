@@ -1,13 +1,12 @@
-use super::BrokerReportProvider::*;
-use super::NationalBank::NationalBank;
-use super::TaxPolicy::*;
-use crate::tax::CurrencyConvertor::*;
+use super::broker_report_provider::*;
+use super::national_bank::NationalBank;
+use super::tax_policy::*;
+use crate::tax::currency_convertor::*;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::*;
-use tabled::{Table, Tabled};
 
 #[derive(Debug)]
 pub struct UaTax {
@@ -78,7 +77,9 @@ pub struct UaTaxInvestmentOps {
     pub total_tax: UaTax,
 }
 
+// Fields are only read through the derived Debug output printed as the tax report.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct UaTradeReport {
     pub buy_date: NaiveDate,
     pub sell_date: NaiveDate,
@@ -88,7 +89,9 @@ pub struct UaTradeReport {
     pub fin_result_uah: Decimal,
 }
 
+// Variants/fields are only read through the derived Debug output printed on error.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum UaTaxReportGeneratorError {
     BrokerError,
     BrokerReportDatesRandeError(String),
@@ -166,7 +169,7 @@ impl UaTaxReportGenerator {
 
             let fin_result_uah = sell_price_uah - buy_price_uah;
 
-            println!("Trade of {}: buy price: {} {}, {} UAH, sell price: {} {}, {} UAH, buy date: {}, sell date: {}", trade.name, trade.buy_price, trade.currency, buy_price_uah, trade.sell_price, trade.currency, sell_price_uah, trade.buy_date.to_string(), trade.sell_date.to_string());
+            println!("Trade of {}: buy price: {} {}, {} UAH, sell price: {} {}, {} UAH, buy date: {}, sell date: {}", trade.name, trade.buy_price, trade.currency, buy_price_uah, trade.sell_price, trade.currency, sell_price_uah, trade.buy_date, trade.sell_date);
 
             investment_tax_report
                 .investment_ops
@@ -261,7 +264,7 @@ impl UaTaxReportGenerator {
             .chain(min_date_dividends)
             .min()
             .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(
-                format!("Could not get earliest date"),
+                "Could not get earliest date".to_string(),
             ))?;
 
         let latest_date = max_date_trades
@@ -269,7 +272,7 @@ impl UaTaxReportGenerator {
             .chain(max_date_dividends)
             .max()
             .ok_or(UaTaxReportGeneratorError::BrokerReportDatesRandeError(
-                format!("Could not get latest date"),
+                "Could not get latest date".to_string(),
             ))?;
 
         Ok((earliest_date, latest_date))

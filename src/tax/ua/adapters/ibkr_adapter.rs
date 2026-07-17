@@ -4,11 +4,11 @@ use chrono::NaiveDate;
 use quick_xml::de::from_str;
 use rust_decimal::Decimal;
 
-use super::BrokerAdapter::BrokerAdapter;
-use crate::broker::common::BrokerReportParserFactory::BrokerType;
-use crate::broker::ibkr::Report;
-use crate::tax::ua::BrokerReportProvider::*;
-use crate::tax::CurrencyConvertor::Currency;
+use super::broker_adapter::BrokerAdapter;
+use crate::broker::common::broker_report_parser_factory::BrokerType;
+use crate::broker::ibkr::report;
+use crate::tax::currency_convertor::Currency;
+use crate::tax::ua::broker_report_provider::*;
 
 pub struct IbkrAdapter {
     adapter: BrokerAdapter,
@@ -38,7 +38,7 @@ impl IbkrAdapter {
     }
 
     // Convert from generic XML to IBKR specific structure
-    fn parse_ibkr_xml(&self, xml_content: &str) -> Result<Report::FlexQueryResponse, String> {
+    fn parse_ibkr_xml(&self, xml_content: &str) -> Result<report::FlexQueryResponse, String> {
         match from_str(xml_content) {
             Ok(report) => Ok(report),
             Err(e) => Err(format!("Failed to parse IBKR report: {}", e)),
@@ -70,13 +70,15 @@ impl BrokerReportProvider for IbkrAdapter {
             // Process trades
             for trade in statement.trades.lots {
                 let buy_date = NaiveDate::parse_from_str(
-                    &trade.open_date_time.split(';').nth(0).unwrap(),
+                    trade.open_date_time.split(';').nth(0).unwrap(),
                     "%Y%m%d",
                 )
                 .unwrap();
                 let sell_date = NaiveDate::parse_from_str(&trade.trade_date, "%Y%m%d").unwrap();
                 let cost = Decimal::from_str_exact(&trade.cost).unwrap();
-                let fifo_pnl_realized = Decimal::from_str_exact(&trade.fifo_pnl_realized).unwrap().round_dp(2);
+                let fifo_pnl_realized = Decimal::from_str_exact(&trade.fifo_pnl_realized)
+                    .unwrap()
+                    .round_dp(2);
 
                 let buy_price = cost.round_dp(2);
                 let sell_price = (cost + fifo_pnl_realized).round_dp(2);

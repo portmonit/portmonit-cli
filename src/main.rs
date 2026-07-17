@@ -1,11 +1,16 @@
+// Regression guard for #1: `cargo build` must stay free of the warning
+// categories it used to flood the terminal with (unused imports, deprecated
+// API usage, dead code, non-snake-case module names).
+#![deny(unused_imports, deprecated, dead_code, nonstandard_style)]
+
 mod broker;
 mod tax;
 
 use clap::Parser;
 
 use tax::ua;
-use tax::ua::adapters::IbkrAdapter::*;
-use tax::ua::TaxReportGenerator::*;
+use tax::ua::adapters::ibkr_adapter::*;
+use tax::ua::tax_report_generator::*;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -45,7 +50,7 @@ fn main() {
 
     // Create tax report generator with the adapter
     let tax_report_generator =
-        UaTaxReportGenerator::new(ua::TaxPolicy::default_tax_policy(), Box::new(adapter));
+        UaTaxReportGenerator::new(ua::tax_policy::default_tax_policy(), Box::new(adapter));
 
     // Generate tax report
     let tax_report = tax_report_generator.get_unformal_tax_report();

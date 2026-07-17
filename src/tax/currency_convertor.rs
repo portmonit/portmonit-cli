@@ -5,6 +5,8 @@ use rust_decimal::Decimal;
 
 #[derive(Debug)]
 pub enum CurrencyConvertorError {
+    // `details` is only read through the derived Debug output printed on error.
+    #[allow(dead_code)]
     CurrencyNotSupported { details: String },
 }
 
@@ -45,7 +47,8 @@ pub struct CurrencyRate {
 
 // received rate must represent how much of "to" currency is needed to buy 1 "from" currency
 pub trait CurrencyRateProvider {
-    // single date
+    // single date; only exercised by tests today, kept as part of the provider interface
+    #[allow(dead_code)]
     fn convert(
         &self,
         from: Currency,
@@ -63,6 +66,7 @@ pub trait CurrencyRateProvider {
     ) -> Result<Vec<CurrencyRate>, CurrencyConvertorError>;
 }
 
+#[cfg(test)]
 mod tests {
     use super::Currency;
 

@@ -1,2 +1,2 @@
-pub mod BrokerReportParserFactory;
-pub mod ReportParser;
+pub mod broker_report_parser_factory;
+pub mod report_parser;

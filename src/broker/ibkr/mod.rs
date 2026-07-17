@@ -1,3 +1,2 @@
-pub mod Constants;
-pub mod Report;
-pub mod ReportParser;
+pub mod report;
+pub mod report_parser;

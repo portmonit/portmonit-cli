@@ -1,2 +1,2 @@
-pub mod BrokerAdapter;
-pub mod IbkrAdapter;
+pub mod broker_adapter;
+pub mod ibkr_adapter;
