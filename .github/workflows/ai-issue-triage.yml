@@ -2,7 +2,7 @@ name: AI Issue Triage
 
 on:
   issues:
-    types: [opened]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   investigate:
     # Don't react to issues opened by bots (including our own automation).
-    if: ${{ !endsWith(github.event.issue.user.login, '[bot]') }}
+    if: ${{ !endsWith(github.event.issue.user.login, '[bot]') && github.event.label.name == 'ai-to-investigate' }}
     runs-on: [self-hosted, ai]
     timeout-minutes: 30
     steps:
