@@ -1,51 +1,131 @@
 name: AI PR Review
 
+# STAGE 3 of the AI pipeline:
+#   ai-issue-triage -> ai-fix -> review (this) <-> ai-apply-review -> completion comment
+#
+# Reviews a PR and decides how the pipeline continues, via a verdict marker
+# in its summary comment:
+#   needs-fixes -> dispatches AI Apply Review Fixes (STAGE 4), same round
+#   approved    -> Claude posts the final completion comment that mentions
+#                  the original issue author (parsed from "Fixes #N")
+# The fix/review loop is capped at MAX_REVIEW_ROUNDS; on the cap (and on a
+# missing verdict) a comment mentioning the issue author is posted instead,
+# so every terminal state notifies a human.
+#
+# Triggers:
+#   - workflow_dispatch — the pipeline path (from AI Fix, AI Apply Review
+#     Fixes, AI Comment) and the manual entry point for maintainers.
+#   - pull_request — gated to non-draft PRs authored by github-actions from
+#     a same-repo branch. This repo is public: fork PRs must NEVER run here,
+#     because linting/building fork code executes untrusted build scripts on
+#     the self-hosted runner. Note that PRs our automation creates with
+#     GITHUB_TOKEN emit no pull_request events at all — for those the
+#     explicit dispatch from AI Fix is the real trigger; this event path
+#     fires when a human pushes to or reopens a bot PR.
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: string
+      round:
+        description: "Review round within the fix loop (1-based)"
+        required: false
+        default: "1"
+        type: string
+
+env:
+  MAX_REVIEW_ROUNDS: "3"
 
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write # to dispatch the AI Apply Review Fixes workflow
 
 concurrency:
-  group: ai-pr-review-${{ github.event.pull_request.number }}
+  group: ai-pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
   review:
-    if: ${{ !github.event.pull_request.draft }}
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        !github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.user.login, 'github-actions')
+      )
     runs-on: [self-hosted, ai]
     timeout-minutes: 40
     steps:
+      - name: Resolve PR context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          IN_PR: ${{ inputs.pr_number }}
+          IN_ROUND: ${{ inputs.round }}
+          EV_PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            pr="$IN_PR"; round="${IN_ROUND:-1}"
+          else
+            pr="$EV_PR"; round=1
+          fi
+          if [[ ! "$pr" =~ ^[0-9]+$ || ! "$round" =~ ^[0-9]+$ ]]; then
+            echo "::error::invalid pr_number '$pr' / round '$round'"
+            exit 1
+          fi
+          # Re-check eligibility against the live PR state: dispatches must
+          # also never check out fork code onto this runner.
+          read -r state draft cross head_ref < <(gh pr view "$pr" --repo "$REPO" \
+            --json state,isDraft,isCrossRepository,headRefName \
+            --jq '[.state, (.isDraft|tostring), (.isCrossRepository|tostring), .headRefName] | @tsv')
+          if [[ "$state" != "OPEN" || "$draft" == "true" || "$cross" == "true" ]]; then
+            echo "::error::PR #$pr is not an open, non-draft, same-repo PR — refusing to review."
+            exit 1
+          fi
+          {
+            echo "pr=$pr"
+            echo "round=$round"
+            echo "head_ref=$head_ref"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ steps.ctx.outputs.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
 
-      # If the latest commit is our own linter-fix commit, skip the run —
-      # otherwise a PAT-triggered `synchronize` event would loop forever.
+      # Loop protection for the *event* path only (dispatched runs are always
+      # intentional): if the newest commit is one of our own automation
+      # commits, a token that emits events (e.g. GH_AUTOMATION_PAT, if set)
+      # would otherwise re-trigger this workflow forever via `synchronize`.
       - name: Guard against self-triggered loop
         id: guard
+        if: github.event_name == 'pull_request'
         run: |
           msg="$(git log -1 --pretty=%s)"
-          if [[ "$msg" == "style(ai): apply linter fixes"* ]]; then
+          if [[ "$msg" == "style(ai): apply linter fixes"* || "$msg" == "fix(ai): apply review fixes"* ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Last commit is our own linter fix — skipping review."
+            echo "Last commit is our own automation commit — skipping event-triggered review."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run linters
-        if: steps.guard.outputs.skip == 'false'
+        if: steps.guard.outputs.skip != 'true'
         run: |
           cargo fmt --check > fmt-report.txt 2>&1 || true
           cargo clippy --all-targets 2> clippy-report.txt || true
 
       - name: Review PR with Claude
-        if: steps.guard.outputs.skip == 'false'
+        if: steps.guard.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
           # The runner is already an isolated Docker container; the action's
@@ -54,22 +134,34 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
           github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
-          # AI Fix opens PRs as the github-actions bot; allow reviewing them.
+          # Pipeline dispatches arrive with GITHUB_TOKEN, so the triggering
+          # actor is the github-actions bot; PRs are authored by it too.
           allowed_bots: "github-actions"
           prompt: |
-            You are reviewing pull request #${{ github.event.pull_request.number }}
-            in ${{ github.repository }} (Rust CLI project). The PR branch is
+            You are reviewing pull request #${{ steps.ctx.outputs.pr }} in
+            ${{ github.repository }} (Rust CLI project). This is review round
+            ${{ steps.ctx.outputs.round }} of at most
+            ${{ env.MAX_REVIEW_ROUNDS }} automated rounds. The PR branch is
             already checked out.
 
             Linter output is prepared for you in the repo root:
-            - fmt-report.txt   (cargo fmt --check)
+            - fmt-report.txt    (cargo fmt --check)
             - clippy-report.txt (cargo clippy)
+
+            Write ALL user-facing text in English. Never write the literal
+            text "@claude" anywhere — the pipeline chains its stages itself,
+            and a mention could trigger stray jobs.
 
             Steps:
 
             1. Study the diff:
-               gh pr diff ${{ github.event.pull_request.number }}
-               and read the surrounding code for context.
+                 gh pr diff ${{ steps.ctx.outputs.pr }}
+               and read the surrounding code for context. If this is round 2
+               or later, also read the PR comments from previous rounds
+               ("AI Review" and "AI Fixes" comments): verify the promised
+               fixes actually landed, and do not re-raise a finding that an
+               "AI Fixes" comment rejected with sound reasoning — unless it
+               is a real correctness or safety problem.
 
             2. MECHANICAL FIXES: if fmt-report.txt or clippy-report.txt show
                fixable problems, apply them:
@@ -77,27 +169,103 @@ jobs:
                  cargo clippy --fix --allow-dirty --all-targets
                Then verify with `cargo build` and `cargo test`. If everything
                passes, commit and push to the PR branch with EXACTLY this
-               commit message subject (the workflow's loop-guard depends on it):
+               commit message subject (loop guards depend on it):
                  style(ai): apply linter fixes
                If tests fail after the fixes, revert them (git checkout .) and
-               only report the linter findings instead.
+               report the linter findings as review items instead.
 
             3. REVIEW: inspect the diff for real problems — bugs, panics on
-               unwrap of untrusted input, error-handling gaps, incorrect logic,
-               API misuse, non-idiomatic Rust. Post inline comments on specific
-               lines using the GitHub review API:
-                 gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments \
+               unwrap of untrusted input, error-handling gaps, incorrect
+               logic, API misuse, non-idiomatic Rust. Post inline comments on
+               specific lines using the GitHub review API:
+                 gh api repos/${{ github.repository }}/pulls/${{ steps.ctx.outputs.pr }}/comments \
                    -f body='...' -f commit_id='<head sha>' -f path='<file>' -F line=<n> -f side=RIGHT
                Only comment where you have a concrete, actionable finding.
 
-            4. SUMMARY: post one summary comment on the PR via
-               `gh pr comment` structured as:
-               ## 🤖 AI Review
-               - **Critical** (must fix before merge) — list or "none"
-               - **Warnings** — list or "none"
-               - **Nitpicks** — short list or "none"
-               - **Linter** — whether fixes were auto-applied and pushed
-               Keep it concise. Do not approve or request changes formally —
-               a human makes the final call.
+            4. VERDICT + SUMMARY: post exactly ONE summary comment via
+               `gh pr comment`. First decide the verdict:
+               - needs-fixes — at least one Critical or Warning-level finding
+                 should be fixed before merge.
+               - approved — no such findings (nitpicks alone do not block).
+
+               If the verdict is needs-fixes, structure the comment as:
+                 ## 🤖 AI Review — Round ${{ steps.ctx.outputs.round }}
+                 - **Critical** (must fix before merge) — list or "none"
+                 - **Warnings** — list or "none"
+                 - **Nitpicks** — short list or "none"
+                 - **Linter** — whether fixes were auto-applied and pushed
+               Keep it concise. The fix stage is dispatched automatically —
+               do not trigger anything yourself.
+
+               If the verdict is approved, the pipeline ends and your comment
+               is the hand-off to a human. Find who to notify: take the issue
+               number from the "Fixes #N" line of the PR body and run
+               `gh issue view N --json author` — mention that login at the
+               top (skip the mention only if there is no linked issue or the
+               author is a bot). Structure the comment as:
+                 ## ✅ AI Review Complete — Ready for Human Review
+                 @<issue-author> this pull request is ready for your review.
+                 ### Summary
+                 The issue, the root cause, and what this PR does about it —
+                 a few sentences, clear and to the point.
+                 ### How it was verified
+                 How the changes were checked: build/test/clippy/fmt status,
+                 tests added or updated, how many review rounds the PR went
+                 through, and anything you re-verified yourself this round.
+                 ### Changes in detail
+                 Change-by-change description WITH the reasoning: why each
+                 decision was taken, not only what changed.
+                 ### Notes for the reviewer
+                 Nitpicks left as-is, trade-offs, anything worth a human
+                 double-check — or "none".
+
+            In BOTH cases the VERY LAST line of the summary comment must be
+            exactly one machine-readable marker (invisible in rendered
+            Markdown; the pipeline parses it to decide the next stage):
+              <!-- ai-review-verdict: needs-fixes -->
+              <!-- ai-review-verdict: approved -->
+
+            Do not approve or request changes via the formal GitHub review
+            API — a human makes the final call on merging.
           claude_args: |
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
+
+      - name: Chain next stage from review verdict
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.ctx.outputs.pr }}
+          ROUND: ${{ steps.ctx.outputs.round }}
+        run: |
+          # Mention target for terminal comments: the author of the issue
+          # this PR fixes (via the mandatory "Fixes #N" line in the PR body).
+          issue=$(gh pr view "$PR" --repo "$REPO" --json body --jq .body \
+            | grep -oiE 'fixes #[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
+          mention=""
+          if [[ -n "$issue" ]]; then
+            login=$(gh issue view "$issue" --repo "$REPO" --json author --jq .author.login || true)
+            [[ -n "$login" ]] && mention="@$login "
+          fi
+
+          verdict=$(gh pr view "$PR" --repo "$REPO" --json comments \
+            --jq '[.comments[] | select((.author.login | startswith("github-actions")) and (.body | contains("<!-- ai-review-verdict:")))] | last | .body // ""' \
+            | grep -oE 'ai-review-verdict: *(approved|needs-fixes)' | tail -1 | awk '{print $2}' || true)
+          echo "Review verdict: '${verdict:-none}' (round $ROUND of $MAX_REVIEW_ROUNDS)"
+
+          if [[ "$verdict" == "approved" ]]; then
+            echo "Approved — the review step already posted the completion comment."
+          elif [[ "$verdict" == "needs-fixes" ]]; then
+            if (( ROUND < MAX_REVIEW_ROUNDS )); then
+              gh workflow run ai-apply-review.yml --repo "$REPO" -f pr_number="$PR" -f round="$ROUND"
+              echo "Dispatched AI Apply Review Fixes (round $ROUND)."
+            else
+              printf '%s\n\n%s\n' "## ⏸️ AI Pipeline Stopped" \
+                "${mention}The automated fix/review loop reached its limit of $MAX_REVIEW_ROUNDS rounds and the latest review still reports unresolved findings. Manual attention is needed — see the latest **AI Review** comment for what remains." \
+                | gh pr comment "$PR" --repo "$REPO" --body-file -
+            fi
+          else
+            printf '%s\n\n%s\n' "## ⚠️ AI Pipeline Stalled" \
+              "${mention}The review finished without a machine-readable verdict, so the automation chain stops here. Check the latest review comment; to retry, run the **AI PR Review** workflow for this PR manually." \
+              | gh pr comment "$PR" --repo "$REPO" --body-file -
+          fi

@@ -6,8 +6,17 @@ name: AI Comment (@claude)
 #   - PR conversation comments           (issue_comment on a PR)
 #   - inline diff comments in a PR       (pull_request_review_comment)
 #   - review body on "Submit review"     (pull_request_review)
-# Typical use — after AI PR Review leaves warnings:
-#   "@claude застосуй зауваження з рев'ю і запуш фікси в цю гілку"
+# Typical use — ask for a change on a PR:
+#   "@claude apply the review remarks and push the fixes to this branch"
+#
+# Only human comments can start this workflow: comments posted by our own
+# automation with GITHUB_TOKEN emit no triggering events, so the pipeline
+# cannot spam jobs here by design.
+#
+# If Claude pushes new commits to a same-repo PR branch during the run, the
+# workflow dispatches AI PR Review for that PR afterwards, so human-requested
+# changes get re-reviewed automatically.
+
 on:
   issue_comment:
     types: [created]
@@ -20,6 +29,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write # to dispatch the AI PR Review workflow
 
 concurrency:
   group: ai-comment-${{ github.event.issue.number || github.event.pull_request.number }}
@@ -43,6 +53,30 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
 
+      - name: Detect PR context
+        id: prctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EV_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EV_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EV_ISSUE_PR_URL: ${{ github.event.issue.pull_request.url }}
+        run: |
+          pr=""
+          if [[ -n "$EV_PR_NUMBER" ]]; then
+            pr="$EV_PR_NUMBER"
+          elif [[ -n "$EV_ISSUE_PR_URL" ]]; then
+            pr="$EV_ISSUE_NUMBER"
+          fi
+          sha=""
+          if [[ -n "$pr" ]]; then
+            sha=$(gh pr view "$pr" --repo "$REPO" --json headRefOid --jq .headRefOid || true)
+          fi
+          {
+            echo "pr=$pr"
+            echo "sha_before=$sha"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Handle @claude request
         uses: anthropics/claude-code-action@v1
         env:
@@ -57,3 +91,22 @@ jobs:
           # itself (PR/issue context, review comments etc. are provided to it).
           claude_args: |
             --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
+
+      - name: Re-review if Claude pushed to the PR branch
+        if: steps.prctx.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.prctx.outputs.pr }}
+          SHA_BEFORE: ${{ steps.prctx.outputs.sha_before }}
+        run: |
+          read -r state cross sha_after < <(gh pr view "$PR" --repo "$REPO" \
+            --json state,isCrossRepository,headRefOid \
+            --jq '[.state, (.isCrossRepository|tostring), .headRefOid] | @tsv')
+          if [[ "$state" == "OPEN" && "$cross" == "false" \
+             && -n "$SHA_BEFORE" && "$sha_after" != "$SHA_BEFORE" ]]; then
+            gh workflow run ai-pr-review.yml --repo "$REPO" -f pr_number="$PR" -f round=1
+            echo "PR head moved ($SHA_BEFORE -> $sha_after) — dispatched AI PR Review."
+          else
+            echo "No push detected (or PR not eligible) — no re-review."
+          fi

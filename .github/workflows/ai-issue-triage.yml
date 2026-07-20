@@ -1,5 +1,18 @@
 name: AI Issue Triage
 
+# STAGE 1 of the AI pipeline:
+#   triage (this) -> ai-fix -> ai-pr-review <-> ai-apply-review -> completion comment
+#
+# Trigger: a human adds the `ai-to-investigate` label to an issue.
+# Output:  one investigation comment ending in a machine-readable verdict
+#          marker; on verdict `fix` this workflow dispatches AI Fix.
+#
+# All chaining in this pipeline uses explicit `gh workflow run`
+# (workflow_dispatch). Side effects performed with GITHUB_TOKEN — labels,
+# comments, pushed commits, created PRs — do NOT emit events that trigger
+# other workflows, so label- or comment-based chaining would silently never
+# fire. workflow_dispatch is the documented exception to that rule.
+
 on:
   issues:
     types: [labeled]
@@ -7,6 +20,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write # to dispatch the AI Fix workflow
 
 concurrency:
   group: ai-issue-triage-${{ github.event.issue.number }}
@@ -50,7 +64,7 @@ jobs:
             When done, post exactly one comment on the issue via:
               gh issue comment ${{ github.event.issue.number }} --body-file <file>
 
-            The comment must be structured as:
+            Write the comment in English. It must be structured as:
             ## 🔍 AI Investigation
             - **Symptom** — what the issue describes, in one or two sentences.
             - **Root cause** — the concrete cause, with file paths and line
@@ -59,12 +73,43 @@ jobs:
             - **Reproduction** — how you reproduced it (or why you couldn't).
             - **Suggested fix** — a short plan of the change needed.
             - **Complexity** — trivial / small / medium / large.
-            - End with: "_To let me implement this fix as a PR, add the
-              `ai-fix` label to this issue._"
+            - If your verdict (below) is `fix`, end the text with:
+              "_Implementation will start automatically — a pull request will
+              follow._"
+              Otherwise end with: "_No automated fix will be attempted. Add the
+              `ai-fix` label to force an implementation attempt._"
 
-            Write the comment in the same language the issue was written in.
+            The VERY LAST line of the comment must be exactly one
+            machine-readable verdict marker (invisible in rendered Markdown;
+            the pipeline parses it to decide whether to start the fix stage):
+              <!-- ai-triage-verdict: fix -->
+                use when you identified a concrete, actionable code fix with
+                reasonable confidence
+              <!-- ai-triage-verdict: no-fix -->
+                use when it is not a code bug, needs more info from the
+                reporter, or the root cause stayed unclear
 
             After posting the comment, add the label:
               gh issue edit ${{ github.event.issue.number }} --add-label "ai-investigated"
           claude_args: |
             --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(cargo:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*),Read,Grep,Glob"
+
+      - name: Dispatch AI Fix on `fix` verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          verdict=$(gh issue view "$ISSUE" --repo "$REPO" --json comments \
+            --jq '[.comments[] | select((.author.login | startswith("github-actions")) and (.body | contains("<!-- ai-triage-verdict:")))] | last | .body // ""' \
+            | grep -oE 'ai-triage-verdict: *(fix|no-fix)' | tail -1 | awk '{print $2}' || true)
+          echo "Triage verdict: '${verdict:-none}'"
+          if [[ "$verdict" == "fix" ]]; then
+            # The label is added for visibility only — bot-added labels emit no
+            # events, so the dispatch below is what actually starts the stage.
+            gh issue edit "$ISSUE" --repo "$REPO" --add-label "ai-fix"
+            gh workflow run ai-fix.yml --repo "$REPO" -f issue_number="$ISSUE"
+            echo "Dispatched AI Fix for issue #$ISSUE."
+          else
+            echo "No fix verdict — the pipeline stops after the investigation."
+          fi

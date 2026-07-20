@@ -1,0 +1,151 @@
+name: AI Apply Review Fixes
+
+# STAGE 4 of the AI pipeline:
+#   ai-issue-triage -> ai-fix -> ai-pr-review <-> apply (this) -> completion comment
+#
+# Takes the findings of the latest AI review round, applies them to the PR
+# branch, then dispatches AI PR Review again with round+1.
+#
+# Deliberately dispatch-only, no event triggers: the review workflow decides
+# when fixes are needed (exactly one dispatch per review round — never one
+# job per review comment), and manual dispatch requires write access, so
+# nothing here is reachable from forks.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to apply review fixes to"
+        required: true
+        type: string
+      round:
+        description: "Review round the findings came from (1-based)"
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write # to dispatch the re-review
+
+concurrency:
+  group: ai-apply-review-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: [self-hosted, ai]
+    timeout-minutes: 60
+    steps:
+      - name: Resolve PR context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          IN_PR: ${{ inputs.pr_number }}
+          IN_ROUND: ${{ inputs.round }}
+        run: |
+          pr="$IN_PR"; round="${IN_ROUND:-1}"
+          if [[ ! "$pr" =~ ^[0-9]+$ || ! "$round" =~ ^[0-9]+$ ]]; then
+            echo "::error::invalid pr_number '$pr' / round '$round'"
+            exit 1
+          fi
+          # Never check out fork code onto this runner.
+          read -r state cross head_ref < <(gh pr view "$pr" --repo "$REPO" \
+            --json state,isCrossRepository,headRefName \
+            --jq '[.state, (.isCrossRepository|tostring), .headRefName] | @tsv')
+          if [[ "$state" != "OPEN" || "$cross" == "true" ]]; then
+            echo "::error::PR #$pr is not an open same-repo PR — refusing to run."
+            exit 1
+          fi
+          {
+            echo "pr=$pr"
+            echo "round=$round"
+            echo "head_ref=$head_ref"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ctx.outputs.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+
+      - name: Apply review fixes with Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          # The runner is already an isolated Docker container; the action's
+          # bubblewrap sandbox can't work here (read-only /proc/sys), so opt out.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
+          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          # The review workflow dispatches this one with GITHUB_TOKEN, so the
+          # triggering actor is the github-actions bot; allow it.
+          allowed_bots: "github-actions"
+          prompt: |
+            You must resolve the findings of AI review round
+            ${{ steps.ctx.outputs.round }} on pull request
+            #${{ steps.ctx.outputs.pr }} in ${{ github.repository }}
+            (Rust CLI project). The PR branch is already checked out.
+
+            Write ALL user-facing text in English. Never write the literal
+            text "@claude" anywhere — the pipeline chains its stages itself.
+
+            Steps:
+
+            1. Collect the findings:
+                 gh pr view ${{ steps.ctx.outputs.pr }} --comments
+                 gh api repos/${{ github.repository }}/pulls/${{ steps.ctx.outputs.pr }}/comments
+               The items to address are the Critical and Warning findings of
+               the latest "AI Review — Round ${{ steps.ctx.outputs.round }}"
+               summary plus the related inline comments. Nitpicks are
+               optional — apply them only when trivial and safe.
+
+            2. Implement the fixes on the current branch. Keep changes minimal
+               and focused on the findings; do not refactor unrelated code.
+               If a finding is factually wrong or would make the code worse,
+               do NOT apply it — record why for the comment in step 5.
+
+            3. Verify — ALL of these must pass:
+                 cargo build
+                 cargo test
+                 cargo clippy --all-targets
+                 cargo fmt
+               Iterate until green. Never push a broken state: if you cannot
+               get it green, revert your edits (git checkout .) and explain
+               the blocker in the step-5 comment instead.
+
+            4. If you changed code, commit and push to the PR branch with
+               EXACTLY this commit message subject (loop guards depend on it):
+                 fix(ai): apply review fixes
+
+            5. Post exactly ONE comment on the PR via `gh pr comment`,
+               structured as:
+                 ## 🔧 AI Fixes — Round ${{ steps.ctx.outputs.round }}
+                 - **Applied** — each finding you fixed, one line each, with
+                   the reason the chosen fix is correct
+                 - **Rejected** — each finding you deliberately did not
+                   apply, with the reasoning (or "none")
+                 - **Verification** — build/test/clippy/fmt status after the
+                   changes
+
+            The re-review is dispatched automatically after you finish — do
+            not trigger anything yourself.
+          claude_args: |
+            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
+
+      # Always re-review after a successful apply run — also when no code
+      # changed (all findings rejected): the next review round reads the
+      # rejection reasoning and can flip the verdict to approved.
+      - name: Dispatch re-review (next round)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.ctx.outputs.pr }}
+          ROUND: ${{ steps.ctx.outputs.round }}
+        run: |
+          next=$(( ROUND + 1 ))
+          gh workflow run ai-pr-review.yml --repo "$REPO" -f pr_number="$PR" -f round="$next"
+          echo "Dispatched AI PR Review round $next for PR #$PR."

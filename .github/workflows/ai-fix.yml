@@ -1,24 +1,58 @@
 name: AI Fix
 
+# STAGE 2 of the AI pipeline:
+#   ai-issue-triage -> fix (this) -> ai-pr-review <-> ai-apply-review -> completion comment
+#
+# Triggers:
+#   - workflow_dispatch — the normal pipeline path, dispatched by AI Issue
+#     Triage on a `fix` verdict (or manually by a maintainer).
+#   - `ai-fix` label added by a human — the manual entry point that skips
+#     the investigation stage.
+# Output: branch `ai/issue-N` + a PR whose body contains "Fixes #N", then an
+# explicit dispatch of AI PR Review (round 1) for that PR. The dispatch is
+# required because the PR is created with GITHUB_TOKEN and therefore emits
+# no `pull_request` event.
+
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to implement a fix for"
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write # to dispatch the AI PR Review workflow
 
 concurrency:
-  group: ai-fix-${{ github.event.issue.number }}
+  group: ai-fix-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
   fix:
-    if: github.event.label.name == 'ai-fix'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai-fix'
     runs-on: [self-hosted, ai]
     timeout-minutes: 60
     steps:
+      - name: Resolve issue number
+        id: ctx
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_ISSUE: ${{ inputs.issue_number }}
+          EV_ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then issue="$IN_ISSUE"; else issue="$EV_ISSUE"; fi
+          if [[ ! "$issue" =~ ^[0-9]+$ ]]; then
+            echo "::error::'$issue' is not a valid issue number"
+            exit 1
+          fi
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -33,21 +67,27 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
           github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
-          # The ai-fix label may be added by automation as well; allow it.
+          # Triage dispatches this workflow with GITHUB_TOKEN, so the
+          # triggering actor is the github-actions bot; allow it.
           allowed_bots: "github-actions"
           prompt: |
             You must implement a fix for GitHub issue
-            #${{ github.event.issue.number }} in ${{ github.repository }}
+            #${{ steps.ctx.outputs.issue }} in ${{ github.repository }}
             (Rust CLI project) and open a pull request.
+
+            Write ALL user-facing text (PR title/body, comments, commit
+            messages) in English. Never write the literal text "@claude"
+            anywhere — the pipeline chains its stages itself.
 
             Steps:
 
             1. Read the issue and all its comments (an earlier AI investigation
                comment may already contain the root cause analysis — use it):
-                 gh issue view ${{ github.event.issue.number }} --comments
+                 gh issue view ${{ steps.ctx.outputs.issue }} --comments
 
-            2. Create a working branch off the default branch:
-                 git checkout -b ai/issue-${{ github.event.issue.number }}
+            2. Create a working branch off the default branch. The branch name
+               must be EXACTLY (automation finds the PR by it):
+                 git checkout -b ai/issue-${{ steps.ctx.outputs.issue }}
 
             3. Implement the smallest correct fix. Follow the existing code
                style. Add or update a test that reproduces the bug and proves
@@ -62,23 +102,40 @@ jobs:
                it pass, do NOT push broken code: instead post a comment on the
                issue explaining what you tried and what blocks the fix, then
                remove the label:
-                 gh issue edit ${{ github.event.issue.number }} --remove-label "ai-fix"
+                 gh issue edit ${{ steps.ctx.outputs.issue }} --remove-label "ai-fix"
                and stop.
 
             5. Commit with a clear message referencing the issue, then push:
-                 git push -u origin ai/issue-${{ github.event.issue.number }}
+                 git push -u origin ai/issue-${{ steps.ctx.outputs.issue }}
 
             6. Open the PR:
                  gh pr create \
-                   --title "fix: <short summary> (#${{ github.event.issue.number }})" \
+                   --title "fix: <short summary> (#${{ steps.ctx.outputs.issue }})" \
                    --body-file <file>
                The body must include: what was broken, root cause, what was
-               changed, how it was tested, and the line
-               "Fixes #${{ github.event.issue.number }}".
+               changed, how it was tested — and, on its own line, EXACTLY:
+                 Fixes #${{ steps.ctx.outputs.issue }}
+               (later pipeline stages parse this line to find the issue and
+               its author, so it is mandatory and must use this exact form).
 
             7. Post a comment on the issue with a link to the created PR.
 
-            Write user-facing text (PR body, comments) in the same language
-            the issue was written in.
+            Do not trigger any workflows yourself — the review stage is
+            dispatched automatically after you finish.
           claude_args: |
             --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(cargo:*),Bash(git:*),Read,Grep,Glob,Edit,Write"
+
+      - name: Dispatch AI PR Review for the new PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.ctx.outputs.issue }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "ai/issue-$ISSUE" --state open \
+            --json number --jq '.[0].number // empty')
+          if [[ -n "$pr" ]]; then
+            gh workflow run ai-pr-review.yml --repo "$REPO" -f pr_number="$pr" -f round=1
+            echo "Dispatched AI PR Review (round 1) for PR #$pr."
+          else
+            echo "No open PR for branch ai/issue-$ISSUE — nothing to chain (the blocker was reported on the issue)."
+          fi
