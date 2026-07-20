@@ -58,11 +58,13 @@ jobs:
             Then investigate the codebase (this is a Rust CLI project; you may
             run `cargo build`, `cargo test`, `cargo run -- ...` to reproduce).
 
-            Your job is ANALYSIS ONLY — do not modify any files, do not create
-            branches or PRs.
+            Your job is ANALYSIS ONLY — do not modify any repository files,
+            do not create branches or PRs.
 
-            When done, post exactly one comment on the issue via:
-              gh issue comment ${{ github.event.issue.number }} --body-file <file>
+            When done, write the comment body to /tmp/ai-triage-comment.md
+            using the Write tool (never write inside the repository), then
+            post exactly one comment on the issue via:
+              gh issue comment ${{ github.event.issue.number }} --body-file /tmp/ai-triage-comment.md
 
             Write the comment in English. It must be structured as:
             ## 🔍 AI Investigation
@@ -92,7 +94,7 @@ jobs:
             After posting the comment, add the label:
               gh issue edit ${{ github.event.issue.number }} --add-label "ai-investigated"
           claude_args: |
-            --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(cargo:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*),Read,Grep,Glob"
+            --allowedTools "Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(cargo:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*),Read,Grep,Glob,Write"
 
       - name: Dispatch AI Fix on `fix` verdict
         env:
