@@ -46,6 +46,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
           github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          # TEMPORARY debug aid: reveals the exact denied tool calls in the
+          # log instead of "hidden for security". Remove once diagnosed.
+          show_full_output: true
           prompt: |
             You are investigating GitHub issue #${{ github.event.issue.number }}
             in repository ${{ github.repository }}.
@@ -58,13 +61,15 @@ jobs:
             Then investigate the codebase (this is a Rust CLI project; you may
             run `cargo build`, `cargo test`, `cargo run -- ...` to reproduce).
 
-            Your job is ANALYSIS ONLY — do not modify any repository files,
-            do not create branches or PRs.
+            Your job is ANALYSIS ONLY — do not modify any TRACKED repository
+            files, do not create branches or PRs.
 
-            When done, write the comment body to /tmp/ai-triage-comment.md
-            using the Write tool (never write inside the repository), then
-            post exactly one comment on the issue via:
-              gh issue comment ${{ github.event.issue.number }} --body-file /tmp/ai-triage-comment.md
+            When done, write the comment body to a scratch file named
+            .ai-triage-comment.md in the repository root using the Write
+            tool (this workflow never commits, so the file is never persisted
+            — it only exists to pass text to gh), then post exactly one
+            comment on the issue via:
+              gh issue comment ${{ github.event.issue.number }} --body-file .ai-triage-comment.md
 
             Write the comment in English. It must be structured as:
             ## 🔍 AI Investigation
