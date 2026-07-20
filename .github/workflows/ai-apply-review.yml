@@ -70,7 +70,7 @@ jobs:
         with:
           ref: ${{ steps.ctx.outputs.head_ref }}
           fetch-depth: 0
-          token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          token: ${{ github.token }}
 
       - name: Apply review fixes with Claude
         uses: anthropics/claude-code-action@v1
@@ -80,7 +80,7 @@ jobs:
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
-          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          github_token: ${{ github.token }}
           # The review workflow dispatches this one with GITHUB_TOKEN, so the
           # triggering actor is the github-actions bot; allow it.
           allowed_bots: "github-actions"

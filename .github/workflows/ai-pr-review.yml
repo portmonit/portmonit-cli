@@ -100,12 +100,13 @@ jobs:
         with:
           ref: ${{ steps.ctx.outputs.head_ref }}
           fetch-depth: 0
-          token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          token: ${{ github.token }}
 
       # Loop protection for the *event* path only (dispatched runs are always
-      # intentional): if the newest commit is one of our own automation
-      # commits, a token that emits events (e.g. GH_AUTOMATION_PAT, if set)
-      # would otherwise re-trigger this workflow forever via `synchronize`.
+      # intentional). With GITHUB_TOKEN our own pushes emit no events, so this
+      # is currently a belt-and-suspenders guard; it still matters if an
+      # event-emitting token (a PAT) is ever wired back in, or a human pushes
+      # one of our automation commit subjects.
       - name: Guard against self-triggered loop
         id: guard
         if: github.event_name == 'pull_request'
@@ -133,7 +134,7 @@ jobs:
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_BASE_SUB_TOKEN }}
-          github_token: ${{ secrets.GH_AUTOMATION_PAT || github.token }}
+          github_token: ${{ github.token }}
           # Pipeline dispatches arrive with GITHUB_TOKEN, so the triggering
           # actor is the github-actions bot; PRs are authored by it too.
           allowed_bots: "github-actions"
