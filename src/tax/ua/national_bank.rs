@@ -39,14 +39,52 @@ fn fetch_nbu_exchange_rate(
     let response = ureq::get(url.as_str()).call();
     match response {
         Ok(response) => {
-            let body = response.into_string().unwrap();
-            let exchange: XmlExchange = from_str(body.as_str()).unwrap();
+            let body =
+                response
+                    .into_string()
+                    .map_err(|e| CurrencyConvertorError::InvalidApiResponse {
+                        details: format!("Error reading exchange rate response body: {:?}", e),
+                    })?;
+            let exchange: XmlExchange = from_str(body.as_str()).map_err(|e| {
+                CurrencyConvertorError::InvalidApiResponse {
+                    details: format!("Error parsing exchange rate XML: {:?}", e),
+                }
+            })?;
             Ok(exchange)
         }
         Err(e) => Err(CurrencyConvertorError::CurrencyNotSupported {
             details: format!("Error fetching exchange rate: {:?}", e),
         }),
     }
+}
+
+fn currency_rate_from_xml(
+    currency: &XmlCurrency,
+    from: Currency,
+    to: Currency,
+) -> Result<CurrencyRate, CurrencyConvertorError> {
+    let rate = Decimal::from_str(currency.rate.as_str()).map_err(|e| {
+        CurrencyConvertorError::InvalidApiResponse {
+            details: format!(
+                "Error parsing exchange rate value {:?}: {:?}",
+                currency.rate, e
+            ),
+        }
+    })?;
+    let date = chrono::NaiveDate::parse_from_str(currency.exchangedate.as_str(), "%d.%m.%Y")
+        .map_err(|e| CurrencyConvertorError::InvalidApiResponse {
+            details: format!(
+                "Error parsing exchange date {:?}: {:?}",
+                currency.exchangedate, e
+            ),
+        })?;
+
+    Ok(CurrencyRate {
+        from,
+        to,
+        rate,
+        date,
+    })
 }
 
 pub struct NationalBank {}
@@ -105,18 +143,7 @@ impl CurrencyRateProvider for NationalBank {
             Ok(exchange) => {
                 let mut rates = Vec::new();
                 for currency in exchange.currencies.iter() {
-                    let decimal_rate = Decimal::from_str(currency.rate.as_str()).unwrap();
-                    let rate = CurrencyRate {
-                        from,
-                        to,
-                        rate: decimal_rate,
-                        date: chrono::NaiveDate::parse_from_str(
-                            currency.exchangedate.as_str(),
-                            "%d.%m.%Y",
-                        )
-                        .unwrap(),
-                    };
-                    rates.push(rate);
+                    rates.push(currency_rate_from_xml(currency, from, to)?);
                 }
                 Ok(rates)
             }
@@ -270,6 +297,65 @@ mod tests {
         };
 
         assert_eq!(trait_exchange, raw_rate);
+    }
+
+    #[test]
+    fn test_malformed_xml_returns_error_instead_of_panicking() {
+        let xml = r#"
+            <exchange>
+                <currency>
+                    <exchangedate>01.01.2022
+        "#;
+
+        let result: Result<XmlExchange, _> = from_str(xml);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_currency_rate_from_xml_with_non_numeric_rate_returns_error() {
+        let currency = XmlCurrency {
+            exchangedate: "01.01.2022".to_string(),
+            r030: "840".to_string(),
+            cc: "USD".to_string(),
+            txt: "Долар США".to_string(),
+            enname: "US Dollar".to_string(),
+            rate: "N/A".to_string(),
+            units: "1".to_string(),
+            rate_per_unit: "N/A".to_string(),
+            group: "1".to_string(),
+            calcdate: "30.12.2021".to_string(),
+        };
+
+        let result = currency_rate_from_xml(&currency, Currency::USD, Currency::UAH);
+
+        assert!(matches!(
+            result,
+            Err(CurrencyConvertorError::InvalidApiResponse { .. })
+        ));
+    }
+
+    #[test]
+    fn test_currency_rate_from_xml_with_invalid_date_returns_error() {
+        let currency = XmlCurrency {
+            exchangedate: "not-a-date".to_string(),
+            r030: "840".to_string(),
+            cc: "USD".to_string(),
+            txt: "Долар США".to_string(),
+            enname: "US Dollar".to_string(),
+            rate: "27.2782".to_string(),
+            units: "1".to_string(),
+            rate_per_unit: "27.2782".to_string(),
+            group: "1".to_string(),
+            calcdate: "30.12.2021".to_string(),
+        };
+
+        let result = currency_rate_from_xml(&currency, Currency::USD, Currency::UAH);
+
+        assert!(matches!(
+            result,
+            Err(CurrencyConvertorError::InvalidApiResponse { .. })
+        ));
     }
 
     #[test]
