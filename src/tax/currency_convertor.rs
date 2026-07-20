@@ -8,6 +8,9 @@ pub enum CurrencyConvertorError {
     // `details` is only read through the derived Debug output printed on error.
     #[allow(dead_code)]
     CurrencyNotSupported { details: String },
+    // `details` is only read through the derived Debug output printed on error.
+    #[allow(dead_code)]
+    InvalidApiResponse { details: String },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
